@@ -512,6 +512,9 @@ struct mm_struct {
 					  * by mmlist_lock
 					  */
 
+		// ycc modify
+		unsigned long nr_anon_refault;
+		unsigned long nr_anon_fault;
 
 		unsigned long hiwater_rss; /* High-watermark of RSS usage */
 		unsigned long hiwater_vm;  /* High-water virtual memory usage */
