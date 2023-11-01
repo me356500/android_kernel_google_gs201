@@ -3588,6 +3588,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	int exclusive = 0;
 	vm_fault_t ret;
 	void *shadow = NULL;
+	// ycc modify
+	unsigned long refault;
+	refault = -1;
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
 		pte_unmap(vmf->pte);
@@ -3657,7 +3660,16 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 				shadow = get_shadow_from_swap_cache(entry);
 				if (shadow)
-					workingset_refault(page, shadow);
+					refault = workingset_refault(page, shadow);
+				// ycc modify
+				if(refault!=-1){
+					if(vma&&vma->vm_mm){
+						if(refault)
+							vma->vm_mm->nr_anon_refault++;
+						printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+						vma->vm_mm->nr_anon_fault++;
+					}
+				}
 
 				lru_cache_add(page);
 				swap_readpage(page, true);

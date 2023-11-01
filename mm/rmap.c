@@ -98,6 +98,10 @@ static inline struct anon_vma *anon_vma_alloc(void)
 		 * from fork, the root will be reset to the parents anon_vma.
 		 */
 		anon_vma->root = anon_vma;
+
+		// ycc modify
+		// anon_vma->num_refault=0;
+		// anon_vma->num_workingset=0;
 	}
 
 	return anon_vma;
