@@ -59,6 +59,12 @@ struct anon_vma {
 	 * only passed by a pointer everywhere, the size and internal structures are local to the
 	 * core kernel.
 	 */
+
+	 
+	// ycc modify
+	// unsigned num_refault;
+	// unsigned num_workingset;
+
 #ifndef __GENKSYMS__
 	/*
 	 * Count of child anon_vmas. Equals to the count of all anon_vmas that

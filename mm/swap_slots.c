@@ -33,6 +33,7 @@
 #include <linux/vmalloc.h>
 #include <linux/mutex.h>
 #include <linux/mm.h>
+#include <linux/rmap.h> // ycc add
 
 static DEFINE_PER_CPU(struct swap_slots_cache, swp_slots);
 static bool	swap_slot_cache_active;
@@ -266,7 +267,7 @@ static int refill_swap_slots_cache(struct swap_slots_cache *cache)
 	cache->cur = 0;
 	if (swap_slot_cache_active)
 		cache->nr = get_swap_pages(SWAP_SLOTS_CACHE_SIZE,
-					   cache->slots, 1);
+					   cache->slots, 1,1);
 
 	return cache->nr;
 }
@@ -307,14 +308,100 @@ swp_entry_t get_swap_page(struct page *page)
 {
 	swp_entry_t entry;
 	struct swap_slots_cache *cache;
-
+	// ycc add
+	int hySwpCheck;
+	/*select uid to swap*/
+	struct anon_vma *anon_vma; 
+	struct anon_vma_chain *avc;
+	struct vm_area_struct *vma;
+	pgoff_t pgoff_start;
+	unsigned long page_uid;
+	unsigned int refault_ratio,zram_usage;
+	unsigned long anon_size, swap_size;
+	page_uid = 0;
+	refault_ratio=99;
+	hySwpCheck=0;
+	anon_size=swap_size=0;
+	
+	
 	entry.val = 0;
 
 	if (PageTransHuge(page)) {
 		if (IS_ENABLED(CONFIG_THP_SWAP))
-			get_swap_pages(1, &entry, HPAGE_PMD_NR);
+			get_swap_pages(1, &entry, HPAGE_PMD_NR,1); // ycc modify
 		goto out;
 	}
+
+
+	// ycc page to uid or pid
+	// page_get_anon_vma(page);
+	hySwpCheck=check_hybird_swap();
+	zram_usage=get_zram_usage();
+	// hySwpCheck=0; //disable hybrid swap
+	if(hySwpCheck){
+		printk("ycc zram usage, %d",zram_usage);
+		/*select uid to swap*/
+		// anon_vma = page_anon_vma(page);
+		// if (anon_vma){
+		// 	pgoff_start = page_to_pgoff(page);
+		// 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
+		// 			pgoff_start, pgoff_start) {
+		// 		vma = avc->vma;
+		// 		if(vma)
+		// 			break;
+		// 		}
+		// 	if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred){
+		// 		page_uid = vma->vm_mm->owner->cred->uid.val;
+		// 		// printk("ycc uid %u pid %u", page_uid, vma->vm_mm->owner->pid);
+		// 		if(page_uid==10277||page_uid==10232||page_uid==10229||page_uid==10226||page_uid==10271){
+		// 			// 3games, 10226: chrome, 10271: IG
+		// 			get_swap_pages(1, &entry, 1,0);
+		// 			// printk("ycc uid %u pid %u", page_uid, vma->vm_mm->owner->pid);
+		// 			goto out;
+		// 		}
+		// 	}
+		// }
+
+		/*select mm_struct to swap*/
+		anon_vma = page_anon_vma(page);
+		if (anon_vma){
+			pgoff_start = page_to_pgoff(page);
+			anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
+					pgoff_start, pgoff_start) {
+				vma = avc->vma;
+				if(vma)
+					break;
+				}
+			if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred){
+				page_uid = vma->vm_mm->owner->cred->uid.val;
+				printk("ycc mm_struct_refault %u %u %u %u", page_uid, vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+			}
+			else if(vma&&vma->vm_mm){
+				printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+			}
+			refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
+
+			anon_size=get_mm_counter(vma->vm_mm,MM_ANONPAGES);  // unit : page
+			swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
+
+			// if(page_uid>=10200&&page_uid<=10245){ // print anon size log
+			// 	printk("ycc swp_out %u %lu %u %u %u",page_uid, anon_size+swap_size, refault_ratio, anon_size, swap_size);
+			// }
+			
+			if((refault_ratio<=10&&anon_size+swap_size>5000)||anon_size+swap_size>100000){
+				// printk("ycc downgrade %u",page_uid);
+				get_swap_pages(1, &entry, 1,0);
+				goto out;	
+			}
+			if((refault_ratio<=15&&anon_size+swap_size>70000)){
+				// printk("ycc downgrade %u",page_uid);
+				get_swap_pages(1, &entry, 1,0);
+				goto out;	
+			}
+
+		}
+	}
+
 
 	/*
 	 * Preemption is allowed here, because we may sleep
@@ -344,7 +431,7 @@ repeat:
 			goto out;
 	}
 
-	get_swap_pages(1, &entry, 1);
+	get_swap_pages(1, &entry, 1,1);
 out:
 	if (mem_cgroup_try_charge_swap(page, entry)) {
 		put_swap_page(page, entry);

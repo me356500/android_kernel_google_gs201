@@ -1047,13 +1047,14 @@ static unsigned long scan_swap_map(struct swap_info_struct *si,
 
 }
 
-int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size)
+int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int reswp) // ycc modify
 {
 	unsigned long size = swap_entry_size(entry_size);
 	struct swap_info_struct *si, *next;
 	long avail_pgs;
 	int n_ret = 0;
 	int node;
+	int NotDegrade = reswp;
 
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && size == SWAPFILE_CLUSTER);
@@ -1076,6 +1077,19 @@ start_over:
 		/* requeue si to after same-priority siblings */
 		plist_requeue(&si->avail_lists[node], &swap_avail_heads[node]);
 		spin_unlock(&swap_avail_lock);
+		// ycc modify
+		// //debug
+		// printk("ycc zram_empty %d, swp_enpty %d, avail_pg %u",plist_node_empty(&si->avail_lists[node]),plist_node_empty(&next->avail_lists[node]),avail_pgs); 
+		// zram total avail_page 786432(3G), zram+swp 1835000(7G) 
+		if(plist_node_empty(&si->avail_lists[node])||plist_node_empty(&next->avail_lists[node])){
+			NotDegrade=1;
+			printk("ycc zram_empty or !next work");
+		}
+		if(!plist_node_empty(&next->avail_lists[node])&&!NotDegrade){
+			spin_lock(&swap_avail_lock);
+			goto nextsi;
+		}
+
 		spin_lock(&si->lock);
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
@@ -1107,6 +1121,8 @@ start_over:
 
 		spin_lock(&swap_avail_lock);
 nextsi:
+		// ycc modify
+		NotDegrade=1;
 		/*
 		 * if we got here, it's likely that si was almost full before,
 		 * and since scan_swap_map() can drop the si->lock, multiple
@@ -1117,7 +1133,7 @@ nextsi:
 		 * list may have been modified; so if next is still in the
 		 * swap_avail_head list then try it, otherwise start over
 		 * if we have not gotten any slots.
-		 */
+		 */		
 		if (plist_node_empty(&next->avail_lists[node]))
 			goto start_over;
 	}

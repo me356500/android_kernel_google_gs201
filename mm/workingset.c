@@ -16,6 +16,7 @@
 #include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
+#include <linux/rmap.h> // ycc add
 
 /*
  *		Double CLOCK lists
@@ -379,7 +380,7 @@ void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg)
  * evicted page in the context of the node and the memcg whose memory
  * pressure caused the eviction.
  */
-void workingset_refault(struct page *page, void *shadow)
+int workingset_refault(struct page *page, void *shadow) // ycc modify
 {
 	bool file = page_is_file_lru(page);
 	struct mem_cgroup *eviction_memcg;
@@ -393,10 +394,18 @@ void workingset_refault(struct page *page, void *shadow)
 	unsigned long refault;
 	bool workingset;
 	int memcgid;
+	// ycc modify
+	int anon_refault;
+	// struct anon_vma *anon_vma;
+	// struct anon_vma_chain *avc;
+	// struct vm_area_struct *vma;
+	// pgoff_t pgoff_start;
+
+	anon_refault=1;
 
 	if (lru_gen_enabled()) {
 		lru_gen_refault(page, shadow);
-		return;
+		return anon_refault; // ycc modify
 	}
 
 	unpack_shadow(shadow, &memcgid, &pgdat, &eviction, &workingset);
@@ -476,6 +485,32 @@ void workingset_refault(struct page *page, void *shadow)
 						     NR_INACTIVE_ANON);
 		}
 	}
+
+	// ycc modify
+	// printk("ycc refault %u %lu %lu",file,refault_distance,workingset_size);
+	if(!file){
+		printk("ycc refault %u %lu %lu",refault_distance>workingset_size,refault_distance,workingset_size);
+		// anon_vma = page_get_anon_vma(page);
+		// if (anon_vma){
+		// 	pgoff_start = page_to_pgoff(page);
+		// 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
+		// 			pgoff_start, pgoff_start) {
+		// 		vma = avc->vma;
+		// 		if(vma)
+		// 			break;
+		// 		}
+		// 	if(vma&&vma->vm_mm){
+		// 		if(refault_distance>workingset_size){
+		// 			SetPageReswapin(page);
+		// 			vma->vm_mm->nr_anon_refault++;
+		// 		}
+		// 		vma->vm_mm->nr_anon_fault++;
+		// 	}
+		// }
+		if(refault_distance>workingset_size)
+			anon_refault=0;
+	}
+
 	if (refault_distance > workingset_size)
 		goto out;
 
@@ -494,6 +529,7 @@ void workingset_refault(struct page *page, void *shadow)
 	}
 out:
 	rcu_read_unlock();
+	return anon_refault; // ycc modify add return
 }
 
 /**
