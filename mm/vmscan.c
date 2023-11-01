@@ -1131,10 +1131,12 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 	LIST_HEAD(free_pages);
 	unsigned int nr_reclaimed = 0;
 	unsigned int pgactivate = 0;
+	// ycc modify
+	unsigned int nr_anon_refault, nr_anon;
+	nr_anon_refault = nr_anon = 0;
 
 	memset(stat, 0, sizeof(*stat));
 	cond_resched();
-
 	while (!list_empty(page_list)) {
 		struct address_space *mapping;
 		struct page *page;
@@ -1326,6 +1328,11 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 					if (!add_to_swap(page))
 						goto activate_locked_split;
 				}
+
+				// ycc modify
+				nr_anon++;
+				if(!PageReswapin(page))
+					nr_anon_refault++;
 
 				may_enter_fs = true;
 
