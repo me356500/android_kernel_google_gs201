@@ -3628,7 +3628,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
-	page = lookup_swap_cache(entry, vma, vmf->address);
+	page = lookup_swap_cache(entry, vma, vmf->address, 1);
 	swapcache = page;
 
 	if (!page) {
@@ -3666,7 +3666,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 					if(vma&&vma->vm_mm){
 						if(refault)
 							vma->vm_mm->nr_anon_refault++;
-						printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+						// printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 						vma->vm_mm->nr_anon_fault++;
 					}
 				}
@@ -3687,7 +3687,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 			goto out;
 		} else {
 			page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE | __GFP_CMA,
-						vmf);
+						vmf, 0);
 			swapcache = page;
 		}
 

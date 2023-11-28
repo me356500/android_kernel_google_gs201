@@ -443,18 +443,18 @@ extern void free_page_and_swap_cache(struct page *);
 extern void free_pages_and_swap_cache(struct page **, int);
 extern struct page *lookup_swap_cache(swp_entry_t entry,
 				      struct vm_area_struct *vma,
-				      unsigned long addr);
+				      unsigned long addr, unsigned dev_flag);
 struct page *find_get_incore_page(struct address_space *mapping, pgoff_t index);
 extern struct page *read_swap_cache_async(swp_entry_t, gfp_t,
 			struct vm_area_struct *vma, unsigned long addr,
-			bool do_poll);
+			bool do_poll, unsigned skip_cnt);
 extern struct page *__read_swap_cache_async(swp_entry_t, gfp_t,
 			struct vm_area_struct *vma, unsigned long addr,
-			bool *new_page_allocated);
+			bool *new_page_allocated, unsigned skip_cnt);
 extern struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t flag,
-				struct vm_fault *vmf);
+				struct vm_fault *vmf, unsigned skip_cnt);
 extern struct page *swapin_readahead(swp_entry_t entry, gfp_t flag,
-				struct vm_fault *vmf);
+				struct vm_fault *vmf, unsigned skip_cnt);
 
 /* linux/mm/swapfile.c */
 extern atomic_long_t nr_swap_pages;
@@ -566,13 +566,13 @@ static inline void put_swap_page(struct page *page, swp_entry_t swp)
 }
 
 static inline struct page *swap_cluster_readahead(swp_entry_t entry,
-				gfp_t gfp_mask, struct vm_fault *vmf)
+				gfp_t gfp_mask, struct vm_fault *vmf, , unsigned skip_cnt)
 {
 	return NULL;
 }
 
 static inline struct page *swapin_readahead(swp_entry_t swp, gfp_t gfp_mask,
-			struct vm_fault *vmf)
+			struct vm_fault *vmf, unsigned skip_cnt)
 {
 	return NULL;
 }
@@ -584,7 +584,7 @@ static inline int swap_writepage(struct page *p, struct writeback_control *wbc)
 
 static inline struct page *lookup_swap_cache(swp_entry_t swp,
 					     struct vm_area_struct *vma,
-					     unsigned long addr)
+					     unsigned long addr, unsigned dev_flag)
 {
 	return NULL;
 }

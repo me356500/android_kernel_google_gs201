@@ -396,10 +396,7 @@ int workingset_refault(struct page *page, void *shadow) // ycc modify
 	int memcgid;
 	// ycc modify
 	int anon_refault;
-	// struct anon_vma *anon_vma;
-	// struct anon_vma_chain *avc;
-	// struct vm_area_struct *vma;
-	// pgoff_t pgoff_start;
+
 
 	anon_refault=1;
 
@@ -489,24 +486,6 @@ int workingset_refault(struct page *page, void *shadow) // ycc modify
 	// ycc modify
 	// printk("ycc refault %u %lu %lu",file,refault_distance,workingset_size);
 	if(!file){
-		printk("ycc refault %u %lu %lu",refault_distance>workingset_size,refault_distance,workingset_size);
-		// anon_vma = page_get_anon_vma(page);
-		// if (anon_vma){
-		// 	pgoff_start = page_to_pgoff(page);
-		// 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
-		// 			pgoff_start, pgoff_start) {
-		// 		vma = avc->vma;
-		// 		if(vma)
-		// 			break;
-		// 		}
-		// 	if(vma&&vma->vm_mm){
-		// 		if(refault_distance>workingset_size){
-		// 			SetPageReswapin(page);
-		// 			vma->vm_mm->nr_anon_refault++;
-		// 		}
-		// 		vma->vm_mm->nr_anon_fault++;
-		// 	}
-		// }
 		if(refault_distance>workingset_size)
 			anon_refault=0;
 	}

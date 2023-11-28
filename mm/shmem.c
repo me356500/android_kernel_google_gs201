@@ -1536,7 +1536,7 @@ static struct page *shmem_swapin(swp_entry_t swap, gfp_t gfp,
 	};
 
 	shmem_pseudo_vma_init(&pvma, info, index);
-	page = swap_cluster_readahead(swap, gfp, &vmf);
+	page = swap_cluster_readahead(swap, gfp, &vmf, 0);
 	shmem_pseudo_vma_destroy(&pvma);
 
 	return page;
@@ -1722,7 +1722,7 @@ static int shmem_swapin_page(struct inode *inode, pgoff_t index,
 	*pagep = NULL;
 
 	/* Look it up and read it in.. */
-	page = lookup_swap_cache(swap, NULL, 0);
+	page = lookup_swap_cache(swap, NULL, 0, 1);
 	if (!page) {
 		/* Or update major stats only when swapin succeeds?? */
 		if (fault_type) {
