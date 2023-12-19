@@ -319,89 +319,88 @@ swp_entry_t get_swap_page(struct page *page)
 	struct vm_area_struct *vma;
 	pgoff_t pgoff_start;
 	unsigned long page_uid;
-	unsigned int refault_ratio, refault_th; // ,zram_usage;
-	int zram_fullness;
+	unsigned int refault_ratio; // ,zram_usage;
+	// int zram_fullness, refault_th;
 	unsigned long anon_size, swap_size;
 	page_uid = 0;
-	refault_ratio=99;
-	hySwpCheck=0;
-	anon_size=swap_size=0;
-	
-	
+	refault_ratio = 99;
+	hySwpCheck = 0;
+	anon_size = swap_size = 0;
+
 	entry.val = 0;
 
 	if (PageTransHuge(page)) {
 		if (IS_ENABLED(CONFIG_THP_SWAP))
-			get_swap_pages(1, &entry, HPAGE_PMD_NR,1); // ycc modify
+			get_swap_pages(1, &entry, HPAGE_PMD_NR, 1); // ycc modify
 		goto out;
 	}
 
-
 	// ycc page to uid or pid
 	// page_get_anon_vma(page);
-	hySwpCheck=check_hybird_swap();
+	hySwpCheck = check_hybird_swap();
 	// zram_usage=get_zram_usage();
 	// hySwpCheck=0; //disable hybrid swap
-	if(hySwpCheck){
-		zram_fullness=zram_usage;
-		// zram_fullness=get_zram_usage();
-		if(zram_fullness>=60 && zram_fullness<=100)
-			refault_th=15+(10*(zram_fullness-60)/(100-60));
-		else{
-			refault_th=15;
-			// printk("ycc zram fail %d",zram_usage);
-		}
+	if (hySwpCheck) {
+		// // adaptive hyswp policy
+		// zram_fullness = zram_usage;
+		// // zram_fullness=get_zram_usage();
+		// if (zram_fullness >= 60 && zram_fullness <= 100)
+		// 	refault_th = 15 + (10 * (zram_fullness - 60) / (100 - 60));
+		// else {
+		// 	refault_th = 15;
+		// 	// printk("ycc zram fail %d",zram_usage);
+		// }
 
 		// printk("ycc zram usage, %d",zram_usage);
 
 		/*select mm_struct to swap*/
 		anon_vma = page_anon_vma(page);
-		if (anon_vma){
+		if (anon_vma) {
 			pgoff_start = page_to_pgoff(page);
-			anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
-					pgoff_start, pgoff_start) {
+			anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start,
+						       pgoff_start)
+			{
 				vma = avc->vma;
-				if(vma)
+				if (vma)
 					break;
-				}
+			}
 			// // print log
-			if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred){
+			if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred) {
 				page_uid = vma->vm_mm->owner->cred->uid.val;
 				// printk("ycc mm_struct_refault %u %u %u %u", page_uid, vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			}
 			// else if(vma&&vma->vm_mm){
 			// 	printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			// }
-			refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
+			refault_ratio =
+				vma->vm_mm->nr_anon_refault * 100 / vma->vm_mm->nr_anon_fault;
 
-			anon_size=get_mm_counter(vma->vm_mm,MM_ANONPAGES);  // unit : page
+			anon_size = get_mm_counter(vma->vm_mm, MM_ANONPAGES); // unit : page
 			swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
 
 			// if(page_uid>=10200&&page_uid<=10245){ // print anon size log
 			// 	printk("ycc swp_out %u %lu %u %u %u",page_uid, anon_size+swap_size, refault_ratio, anon_size, swap_size);
 			// }
-			if(refault_ratio<=10&&anon_size+swap_size>5000){
-				printk("ycc downgrade_f %u th(%u)",page_uid,refault_ratio);
-				get_swap_pages(1, &entry, 1,0);
+			if (refault_ratio <= 10 && anon_size + swap_size > 5000) {
+				// printk("ycc downgrade_f %u th(%u)", page_uid, refault_ratio);
+				get_swap_pages(1, &entry, 1, 0);
 				count_vm_event(THP_ZERO_PAGE_ALLOC);
-				goto out;	
+				goto out;
 			}
 			// if(anon_size+swap_size>100000){
 			// 	printk("ycc downgrade_s %u anon(%u)",page_uid,anon_size+swap_size);
 			// 	get_swap_pages(1, &entry, 1,0);
 			// 	count_vm_event(THP_ZERO_PAGE_ALLOC_FAILED);
-			// 	goto out;	
+			// 	goto out;
 			// }
 			// if((refault_ratio<=refault_th&&anon_size+swap_size>70000)){
 			// 	printk("ycc downgrade %u th(%u), ratio(%d)",page_uid,refault_th,refault_ratio);
 			// 	get_swap_pages(1, &entry, 1,0);
 			// 	count_vm_event(THP_DEFERRED_SPLIT_PAGE);
-			// 	goto out;	
+			// 	goto out;
 			// }
-
 		}
 	}
-
 
 	/*
 	 * Preemption is allowed here, because we may sleep

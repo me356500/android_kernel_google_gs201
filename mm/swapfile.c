@@ -44,6 +44,17 @@
 #include <linux/swapops.h>
 #include <linux/swap_cgroup.h>
 
+// struct pid_swap_map_node //ycc add
+// {
+//     int pid;
+//     unsigned partition;
+// 	unsigned offest;
+
+//     struct hlist_node node;
+// }; 
+
+// DEFINE_HASHTABLE(pid_to_swap_offset, 10); //ycc add
+
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
@@ -268,6 +279,7 @@ static void discard_swap_cluster(struct swap_info_struct *si,
 #define swap_entry_size(size)	(size)
 #else
 #define SWAPFILE_CLUSTER	256
+// #define SWAPFILE_CLUSTER	1024
 
 /*
  * Define swap_entry_size() as constant to let compiler to optimize
@@ -778,6 +790,13 @@ static int scan_swap_map_slots(struct swap_info_struct *si,
 	int latency_ration = LATENCY_LIMIT;
 	int n_ret = 0;
 	bool scanned_many = false;
+	// ycc add to hash
+	struct pid_swap_map_node *pid_swap_map = NULL;
+	if (pid_swap_map != NULL) {
+		pid_swap_map =
+			(struct pid_swap_map_node *)kmalloc(sizeof *pid_swap_map, GFP_KERNEL);
+		//   HASH_ADD_INT( users, id, s );  /* id: name of key field */
+	}
 
 	/*
 	 * We try to cluster swap pages by allocating them sequentially
@@ -1081,11 +1100,12 @@ start_over:
 		// //debug
 		// printk("ycc zram_empty %d, swp_enpty %d, avail_pg %u",plist_node_empty(&si->avail_lists[node]),plist_node_empty(&next->avail_lists[node]),avail_pgs); 
 		// zram total avail_page 786432(3G), zram+swp 1835000(7G) 
+		// printk("ycc swap_type %d, highest %d, lowest %d, prio %d, entry_size %d, n_goal %d", si->type, si->highest_bit, si->lowest_bit, si->prio, entry_size, n_goal);
 		if(plist_node_empty(&si->avail_lists[node])||plist_node_empty(&next->avail_lists[node])){
 			NotDegrade=1;
 			printk("ycc zram_empty or !next work");
 		}
-		if(!plist_node_empty(&next->avail_lists[node])&&!NotDegrade){
+		if(!plist_node_empty(&next->avail_lists[node])&&!NotDegrade&&!si->type){
 			spin_lock(&swap_avail_lock);
 			goto nextsi;
 		}

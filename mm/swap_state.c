@@ -23,6 +23,8 @@
 #include <linux/huge_mm.h>
 #include <linux/shmem_fs.h>
 #include "internal.h"
+#include <linux/rmap.h> // ycc add
+#include <linux/hyswp_migrate.h> // ycc add
 
 /*
  * swapper_space is a fiction, retained to simplify the path through
@@ -101,6 +103,9 @@ unsigned long check_hybird_swap(void)
 {
 	unsigned long swp_dev_cnt = 0, i;
 
+	if(!hyswp_enable)
+		return 0;
+
 	for (i = 0; i < MAX_SWAPFILES; i++) {
 		swp_entry_t entry = swp_entry(i, 1);
 
@@ -110,7 +115,6 @@ unsigned long check_hybird_swap(void)
 		swp_dev_cnt++;
 	}
 	// printk("ycc dev count %d, total swp page %d",swp_dev_cnt,ret);
-	// return 0; // disable hybrid swap
 	if(swp_dev_cnt>=2)
 		return 1; // not skip
 	return 0;
@@ -264,6 +268,34 @@ int add_to_swap(struct page *page)
 {
 	swp_entry_t entry;
 	int err;
+	// ycc add
+	/*ycc swap out log*/
+	// struct anon_vma *anon_vma;
+	// struct anon_vma_chain *avc;
+	// struct vm_area_struct *vma;
+	// pgoff_t pgoff_start;
+	// int page_uid, page_pid;
+	// unsigned long page_pfn;
+
+	// anon_vma = page_anon_vma(page);
+	// page_pfn = page_to_pfn(page);
+	// page_uid = page_pid = -1;
+	// if (anon_vma)
+	// {
+	// 	pgoff_start = page_to_pgoff(page);
+	// 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start,
+	// 								   pgoff_start)
+	// 	{
+	// 		vma = avc->vma;
+	// 		if (vma)
+	// 			break;
+	// 	}
+	// 	if (vma && vma->vm_mm && vma->vm_mm->owner)
+	// 		page_pid = vma->vm_mm->owner->pid;
+	// 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
+	// 		page_uid = vma->vm_mm->owner->cred->uid.val;
+	// }
+	// printk("ycc add_to_swap,pfn,%llu,pid,%d,uid,%d", page_pfn, page_pid, page_uid);
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(!PageUptodate(page), page);
@@ -419,8 +451,11 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 	struct page *page;
 	struct swap_info_struct *si;
 
-	/*select uid to swap*/
-	unsigned long page_uid;
+	// ycc add
+	/*find page uid, pid, pgd*/
+	int page_uid, page_pid;
+	unsigned long page_pgd;
+	unsigned long refault_activate_ratio = 200;
 
 	si = get_swap_device(entry);
 	if (!si)
@@ -428,22 +463,44 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 	page = find_get_page(swap_address_space(entry), swp_offset(entry));
 	put_swap_device(si);
 
-	/*select uid to swap*/
-	page_uid=0;
-	if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred)
+	/*find page uid, pid, pgd*/
+	page_uid = page_pid = -1;
+	page_pgd = 0;
+	if (vma && vma->vm_mm) {
+		page_pgd = vma->vm_mm->pgd->pgd;
+		if (vma->vm_mm->nr_anon_fault)
+			refault_activate_ratio =
+				vma->vm_mm->nr_anon_refault * 100 / vma->vm_mm->nr_anon_fault;
+	}
+	if (vma && vma->vm_mm && vma->vm_mm->owner)
+		page_pid = vma->vm_mm->owner->pid;
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
-	
+
 	// ycc modify
-	if(dev_flag){
-		printk("ycc swp_offset %llu swp_type %llu pfn %llu uid %llu",swp_offset(entry),swp_type(entry),PFN_DOWN(addr),page_uid);
+	if (dev_flag) {
+		// swap in log
+		if (page)
+			printk("ycc,swp_offset,%llu,swp_type,%llu,pfn,%llu,RA_hit-1,pid,%d,uid,%d,pgd,%llu",
+			       swp_offset(entry), swp_type(entry), PFN_DOWN(addr), page_pid,
+			       page_uid, page_pgd);
+		else
+			printk("ycc,swp_offset,%llu,swp_type,%llu,pfn,%llu,RA_hit-0,pid,%d,uid,%d,pgd,%llu",
+			       swp_offset(entry), swp_type(entry), PFN_DOWN(addr), page_pid,
+			       page_uid, page_pgd);
+
 		// if(swp_offset(entry))
 		// 	count_vm_event(SWPIN_FLASH);
 		// else
 		// 	count_vm_event(SWPIN_ZRAM);
-		if(swp_type(entry)) // mark: temp to count page fault in zram,swp
+		if (swp_type(entry)) // mark: temp to count page fault in zram,swp
 			count_vm_event(THP_SWPOUT_FALLBACK);
 		else
 			count_vm_event(THP_SWPOUT);
+		// page fault in which mm_struct
+		if (show_fault_distribution)
+			put_mm_fault_distribution(refault_activate_ratio);
+		
 	}
 
 	INC_CACHE_INFO(find_total);

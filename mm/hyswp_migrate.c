@@ -10,7 +10,7 @@
 #include <linux/sched/task.h>
 #include <linux/sched/mm.h>
 #include <linux/swapfile.h>
-
+#include <linux/hyswp_migrate.h>
 #include <linux/printk.h>
 
 int hyswp_scan_sec = 30;
@@ -19,12 +19,54 @@ gfp_t my_gfp_mask = GFP_HIGHUSER_MOVABLE | __GFP_CMA;
 volatile int zram_usage = 200;
 static int local_zram_usage;
 #define zran_usage_th 5
-// #define read_page_th 7864 * 5
-// #define read_page_th 256
-#define RUN true
-// #define RUN false
 int page_demote_cnt = 0, page_promote_cnt = 0;
 enum si_dev { zram_dev = 0, flash_dev };
+
+/* statistic */
+// static DEFINE_MUTEX(distribution_lock);
+static DEFINE_SPINLOCK(distribution_lock);
+bool show_page_distribution = false;
+#define distribution 7
+int mm_distribution[distribution];
+
+// statistic
+static void init_statistic()
+{
+	int i;
+	// mutex_lock(&distribution_lock);
+	spin_lock(&distribution_lock);
+	for (i = 0; i < distribution; i++)
+		mm_distribution[i] = 0;
+	// mutex_unlock(&distribution_lock);
+	spin_unlock(&distribution_lock);
+}
+
+static void put_mm_page_distribution(unsigned value, unsigned anon_pages, unsigned swap_pages)
+{
+	unsigned bucket = value / 5;
+	spin_lock(&distribution_lock);
+	bucket = bucket >= distribution ? distribution - 1 : bucket;
+	mm_distribution[bucket] = mm_distribution[bucket] + anon_pages + swap_pages;
+	spin_unlock(&distribution_lock);
+}
+
+void put_mm_fault_distribution(unsigned value)
+{
+	unsigned bucket = value / 5;
+	spin_lock(&distribution_lock);
+	bucket = bucket >= distribution ? distribution - 1 : bucket;
+	mm_distribution[bucket]++;
+	spin_unlock(&distribution_lock);
+}
+
+static void show_mm_distribution()
+{
+	spin_lock(&distribution_lock);
+	printk("ycc_each_mm,scan_round,%d,mm_value,%d,%d,%d,%d,%d,%d,%d", scan_round,
+	       mm_distribution[0], mm_distribution[1], mm_distribution[2], mm_distribution[3],
+	       mm_distribution[4], mm_distribution[5], mm_distribution[6]);
+	spin_unlock(&distribution_lock);
+}
 
 // mm_struct migrate
 static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr, unsigned long end,
@@ -207,6 +249,9 @@ static void start_zram_migrate()
 	page_demote_cnt = 0;
 	page_promote_cnt = 0;
 
+	if (show_page_distribution && scan_round >= 10)
+		init_statistic();
+
 	while ((p = p->next) != &init_mm.mmlist) {
 		mm = list_entry(p, struct mm_struct, mmlist);
 		if (!mmget_not_zero(mm))
@@ -225,8 +270,7 @@ static void start_zram_migrate()
 			mm_demote_cnt++;
 			mm_demote_1++;
 			scan_vma(mm, zram_dev);
-		} 
-		else if (anon_size + swap_size > 100000) {
+		} else if (anon_size + swap_size > 100000) {
 			mm_demote_cnt++;
 			mm_demote_2++;
 			// scan_vma(mm, zram_dev);
@@ -238,6 +282,9 @@ static void start_zram_migrate()
 
 		cond_resched();
 		spin_lock(&mmlist_lock);
+
+		if (show_page_distribution && scan_round >= 10)
+			put_mm_page_distribution(refault_ratio, anon_size, swap_size);
 	}
 	spin_unlock(&mmlist_lock);
 	mmput(prev_mm);
@@ -245,6 +292,8 @@ static void start_zram_migrate()
 	avg_anon_fault /= mm_cnt;
 	printk("ycc hyswp_migrate: scan_mm(%d), demote_mm(%d), demote_page(%d), demote_1(%d), demote_2(%d), avg_anon_fault(%llu)",
 	       mm_cnt, mm_demote_cnt, page_demote_cnt, mm_demote_1, mm_demote_2, avg_anon_fault);
+	if ((show_page_distribution || show_fault_distribution) && scan_round >= 10)
+		show_mm_distribution();
 }
 
 static int hyswp_migrate(void *p)
@@ -255,6 +304,9 @@ static int hyswp_migrate(void *p)
 	// allow_signal(SIGUSR1);
 
 	scan_round = 0;
+	show_page_distribution = show_fault_distribution ? false : show_page_distribution;
+	init_statistic();
+
 	for (;;) {
 		if (kthread_should_stop())
 			break;
@@ -270,7 +322,7 @@ static int hyswp_migrate(void *p)
 		printk("ycc hyswp_migrate: (%d) zram_usage (%d), swapcache(%d)", scan_round,
 		       local_zram_usage, total_swapcache_pages());
 		scan_round++;
-		if (RUN == true && check_hybird_swap()) {
+		if (dispatch_enable && check_hybird_swap()) {
 			// for_each_node_state(nid, N_MEMORY)
 			//     knewanond_scan_node(NODE_DATA(nid));
 			if (local_zram_usage >= zran_usage_th && local_zram_usage <= 100) {
