@@ -270,7 +270,7 @@ static int refill_swap_slots_cache(struct swap_slots_cache *cache)
 	cache->cur = 0;
 	if (swap_slot_cache_active)
 		cache->nr = get_swap_pages(SWAP_SLOTS_CACHE_SIZE,
-					   cache->slots, 1,1);
+					   cache->slots, 1, 1, NULL);
 
 	return cache->nr;
 }
@@ -313,15 +313,17 @@ swp_entry_t get_swap_page(struct page *page)
 	struct swap_slots_cache *cache;
 	// ycc add
 	int hySwpCheck;
+	bool disable_swap_slot_cache = false;
 	/*select uid to swap*/
 	struct anon_vma *anon_vma; 
 	struct anon_vma_chain *avc;
-	struct vm_area_struct *vma;
+	struct vm_area_struct *vma = NULL;
 	pgoff_t pgoff_start;
 	unsigned long page_uid;
 	unsigned int refault_ratio; // ,zram_usage;
 	// int zram_fullness, refault_th;
 	unsigned long anon_size, swap_size;
+	unsigned long large_vma_size = (1UL) << PMD_SHIFT;
 	page_uid = 0;
 	refault_ratio = 99;
 	hySwpCheck = 0;
@@ -331,8 +333,22 @@ swp_entry_t get_swap_page(struct page *page)
 
 	if (PageTransHuge(page)) {
 		if (IS_ENABLED(CONFIG_THP_SWAP))
-			get_swap_pages(1, &entry, HPAGE_PMD_NR, 1); // ycc modify
+			get_swap_pages(1, &entry, HPAGE_PMD_NR, 1, vma); // ycc modify
 		goto out;
+	}
+
+	// ycc find vma to swap allocation
+	anon_vma = page_anon_vma(page);
+	if (anon_vma) {
+		pgoff_start = page_to_pgoff(page);
+		anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start, pgoff_start)
+		{
+			vma = avc->vma;
+			if (vma)
+				break;
+		}
+		if (vma->vm_start + large_vma_size > vma->vm_end)
+			vma = NULL;
 	}
 
 	// ycc page to uid or pid
@@ -381,9 +397,10 @@ swp_entry_t get_swap_page(struct page *page)
 			// if(page_uid>=10200&&page_uid<=10245){ // print anon size log
 			// 	printk("ycc swp_out %u %lu %u %u %u",page_uid, anon_size+swap_size, refault_ratio, anon_size, swap_size);
 			// }
-			if (refault_ratio <= 10 && anon_size + swap_size > 5000) {
+			if (refault_ratio <= anon_refault_active_th &&
+			    anon_size + swap_size > 5000) {
 				// printk("ycc downgrade_f %u th(%u)", page_uid, refault_ratio);
-				get_swap_pages(1, &entry, 1, 0);
+				get_swap_pages(1, &entry, 1, 0, vma);
 				count_vm_event(THP_ZERO_PAGE_ALLOC);
 				goto out;
 			}
@@ -413,6 +430,11 @@ swp_entry_t get_swap_page(struct page *page)
 	 */
 	cache = raw_cpu_ptr(&swp_slots);
 
+#ifdef swap_alloc_enable // ycc modify: disable swap slot cache
+	disable_swap_slot_cache = true;
+#endif
+
+	if(!disable_swap_slot_cache){
 	if (likely(check_cache_active() && cache->slots)) {
 		mutex_lock(&cache->alloc_lock);
 		if (cache->slots) {
@@ -429,8 +451,10 @@ repeat:
 		if (entry.val)
 			goto out;
 	}
+	}
 
-	get_swap_pages(1, &entry, 1,1);
+
+	get_swap_pages(1, &entry, 1, 1, vma);
 out:
 	if (mem_cgroup_try_charge_swap(page, entry)) {
 		put_swap_page(page, entry);

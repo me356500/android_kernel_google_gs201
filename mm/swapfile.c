@@ -43,17 +43,36 @@
 #include <asm/tlbflush.h>
 #include <linux/swapops.h>
 #include <linux/swap_cgroup.h>
+#include <linux/hyswp_migrate.h> // ycc add
 
-// struct pid_swap_map_node //ycc add
-// {
-//     int pid;
-//     unsigned partition;
-// 	unsigned offest;
+struct pid_swap_map_node // ycc add
+{
+	int pid;
+	unsigned used_page;
+	unsigned offest;
 
-//     struct hlist_node node;
-// }; 
+	struct hlist_node hash;
+};
 
-// DEFINE_HASHTABLE(pid_to_swap_offset, 10); //ycc add
+DEFINE_HASHTABLE(pid_to_swap_offset_hash, 13); // ycc add
+#ifdef swap_alloc_enable
+static DEFINE_SPINLOCK(swap_alloc_lock);
+static struct pid_swap_map_node *get_pid_hash(int pid)
+{
+	struct pid_swap_map_node *pid_slot;
+	// int pid;
+	// pid = -1;
+	// if (vma && vma->vm_mm && vma->vm_mm->owner)
+	// 	pid = vma->vm_mm->owner->pid;
+
+	hash_for_each_possible (pid_to_swap_offset_hash, pid_slot, hash, pid)
+		if (pid == pid_slot->pid)
+			return pid_slot;
+
+	return NULL;
+}
+static unsigned swap_alloc_free_offset = 1;
+#endif
 
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
@@ -279,7 +298,7 @@ static void discard_swap_cluster(struct swap_info_struct *si,
 #define swap_entry_size(size)	(size)
 #else
 #define SWAPFILE_CLUSTER	256
-// #define SWAPFILE_CLUSTER	1024
+// #define SWAPFILE_CLUSTER	512
 
 /*
  * Define swap_entry_size() as constant to let compiler to optimize
@@ -781,7 +800,7 @@ static void set_cluster_next(struct swap_info_struct *si, unsigned long next)
 
 static int scan_swap_map_slots(struct swap_info_struct *si,
 			       unsigned char usage, int nr,
-			       swp_entry_t slots[])
+			       swp_entry_t slots[], struct vm_area_struct *vma)
 {
 	struct swap_cluster_info *ci;
 	unsigned long offset;
@@ -791,12 +810,30 @@ static int scan_swap_map_slots(struct swap_info_struct *si,
 	int n_ret = 0;
 	bool scanned_many = false;
 	// ycc add to hash
-	struct pid_swap_map_node *pid_swap_map = NULL;
-	if (pid_swap_map != NULL) {
-		pid_swap_map =
-			(struct pid_swap_map_node *)kmalloc(sizeof *pid_swap_map, GFP_KERNEL);
-		//   HASH_ADD_INT( users, id, s );  /* id: name of key field */
-	}
+	// if (vma != NULL) {
+	// 	struct pid_swap_map_node *pid_swap_map;
+	// 	int page_pid = -1;
+
+	// 	if (vma && vma->vm_mm && vma->vm_mm->owner)
+	// 		page_pid = vma->vm_mm->owner->pid;
+	// 	spin_lock(&swap_alloc_lock);
+	// 	pid_swap_map = get_pid_hash(page_pid);
+	// 	if (pid_swap_map == NULL) {
+	// 		pid_swap_map = (struct pid_swap_map_node *)kmalloc(sizeof(*pid_swap_map),
+	// 								   GFP_KERNEL);
+	// 		pid_swap_map->pid = page_pid;
+	// 		pid_swap_map->offest = 0;
+	// 		pid_swap_map->partition = 0;
+	// 		hash_add(pid_to_swap_offset_hash, &pid_swap_map->hash, page_pid);
+	// 		printk("ycc pid NULL %d", page_pid);
+	// 	} else {
+	// 		pid_swap_map->offest++;
+	// 		pid_swap_map->partition++;
+	// 		printk("ycc pid find partiton %d offset %d pid %d", pid_swap_map->offest,
+	// 		       pid_swap_map->partition, page_pid);
+	// 	}
+	// 	spin_unlock(&swap_alloc_lock);
+	// }
 
 	/*
 	 * We try to cluster swap pages by allocating them sequentially
@@ -1003,6 +1040,288 @@ no_page:
 	return n_ret;
 }
 
+
+#ifdef swap_alloc_enable
+static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
+			       unsigned char usage, int nr,
+			       swp_entry_t slots[], struct vm_area_struct *vma) // ycc flash swap alloc
+{
+	struct swap_cluster_info *ci;
+	unsigned long offset;
+	unsigned long scan_base;
+	unsigned long last_in_cluster = 0;
+	int latency_ration = LATENCY_LIMIT;
+	int n_ret = 0;
+	bool scanned_many = false;
+	int page_pid = -1;
+	int start_offset = -1, used_page = -1;
+	struct pid_swap_map_node *pid_swap_map;
+	// ycc add to hash
+	if (vma && vma->vm_mm && vma->vm_mm->owner)
+		page_pid = vma->vm_mm->owner->pid;
+	
+
+	/*
+	 * We try to cluster swap pages by allocating them sequentially
+	 * in swap.  Once we've allocated SWAPFILE_CLUSTER pages this
+	 * way, however, we resort to first-free allocation, starting
+	 * a new cluster.  This prevents us from scattering swap pages
+	 * all over the entire swap partition, so that we reduce
+	 * overall disk seek times between swap pages.  -- sct
+	 * But we do now try to find an empty cluster.  -Andrea
+	 * And we let swap pages go all over an SSD partition.  Hugh
+	 */
+
+	si->flags += SWP_SCANNING;
+	/*
+	 * Use percpu scan base for SSD to reduce lock contention on
+	 * cluster and swap cache.  For HDD, sequential access is more
+	 * important.
+	 */
+	if (si->flags & SWP_SOLIDSTATE)
+		scan_base = this_cpu_read(*si->cluster_next_cpu);
+	else
+		scan_base = si->cluster_next;
+	offset = scan_base;
+
+	// ycc add to hash
+pid_to_hash:
+	offset = scan_base = READ_ONCE(si->highest_bit) - 1;
+	if (swap_alloc_free_offset >= 12 * 1024 * 1024 / 4)
+		swap_alloc_free_offset = 1;
+	if (page_pid != -1) {
+		spin_lock(&swap_alloc_lock);
+		pid_swap_map = get_pid_hash(page_pid);
+		if (pid_swap_map == NULL) {
+			pid_swap_map = (struct pid_swap_map_node *)kmalloc(sizeof(*pid_swap_map),
+									   GFP_KERNEL);
+			pid_swap_map->pid = page_pid;
+			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
+			pid_swap_map->used_page = 1;
+			hash_add(pid_to_swap_offset_hash, &pid_swap_map->hash, page_pid);
+			swap_alloc_free_offset += 256;
+			used_page = pid_swap_map->used_page; //debug
+			start_offset = offset;
+			// printk("ycc pid NULL %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
+		} else if (pid_swap_map->used_page >= 256) {
+			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
+			pid_swap_map->used_page = 1;
+			swap_alloc_free_offset += 256;
+			used_page = pid_swap_map->used_page; //debug
+			start_offset = offset;
+			// printk("ycc pid find %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
+		} else {
+			offset = pid_swap_map->offest + pid_swap_map->used_page;
+			scan_base = pid_swap_map->offest;
+			pid_swap_map->used_page++;
+			used_page = pid_swap_map->used_page; //debug
+			start_offset = offset;
+			// printk("ycc pid find offset %d used_page %d pid %d next_start %d highest bit %d", pid_swap_map->offest,
+			//        pid_swap_map->used_page, page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
+		}
+		spin_unlock(&swap_alloc_lock);
+		goto scan_swap_alloc;
+	}
+	goto scan;
+
+	/* SSD algorithm */
+	if (si->cluster_info) {
+		if (!scan_swap_map_try_ssd_cluster(si, &offset, &scan_base))
+			goto scan;
+	} else if (unlikely(!si->cluster_nr--)) {
+		if (si->pages - si->inuse_pages < SWAPFILE_CLUSTER) {
+			si->cluster_nr = SWAPFILE_CLUSTER - 1;
+			goto checks;
+		}
+
+		spin_unlock(&si->lock);
+
+		/*
+		 * If seek is expensive, start searching for new cluster from
+		 * start of partition, to minimize the span of allocated swap.
+		 * If seek is cheap, that is the SWP_SOLIDSTATE si->cluster_info
+		 * case, just handled by scan_swap_map_try_ssd_cluster() above.
+		 */
+		scan_base = offset = si->lowest_bit;
+		last_in_cluster = offset + SWAPFILE_CLUSTER - 1;
+
+		/* Locate the first empty (unaligned) cluster */
+		for (; last_in_cluster <= si->highest_bit; offset++) {
+			if (si->swap_map[offset])
+				last_in_cluster = offset + SWAPFILE_CLUSTER;
+			else if (offset == last_in_cluster) {
+				spin_lock(&si->lock);
+				offset -= SWAPFILE_CLUSTER - 1;
+				si->cluster_next = offset;
+				si->cluster_nr = SWAPFILE_CLUSTER - 1;
+				goto checks;
+			}
+			if (unlikely(--latency_ration < 0)) {
+				cond_resched();
+				latency_ration = LATENCY_LIMIT;
+			}
+		}
+
+		offset = scan_base;
+		spin_lock(&si->lock);
+		si->cluster_nr = SWAPFILE_CLUSTER - 1;
+	}
+
+checks:
+	if (si->cluster_info) {
+		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
+		/* take a break if we already got some slots */
+			if (n_ret)
+				goto done;
+			if (!scan_swap_map_try_ssd_cluster(si, &offset,
+							&scan_base))
+				goto scan;
+		}
+	}
+	if (!(si->flags & SWP_WRITEOK))
+		goto no_page;
+	if (!si->highest_bit)
+		goto no_page;
+	if (offset > si->highest_bit)
+		scan_base = offset = si->lowest_bit;
+
+	ci = lock_cluster(si, offset);
+	/* reuse swap entry of cache-only swap if not busy. */
+	if (vm_swap_full() && si->swap_map[offset] == SWAP_HAS_CACHE) {
+		int swap_was_freed;
+		unlock_cluster(ci);
+		spin_unlock(&si->lock);
+		swap_was_freed = __try_to_reclaim_swap(si, offset, TTRS_ANYWAY);
+		spin_lock(&si->lock);
+		/* entry was freed successfully, try to use this again */
+		if (swap_was_freed)
+			goto checks;
+		goto scan; /* check next one */
+	}
+
+	if (si->swap_map[offset]) {
+		unlock_cluster(ci);
+		if (!n_ret)
+			goto scan;
+		else
+			goto done;
+	}
+	WRITE_ONCE(si->swap_map[offset], usage);
+	inc_cluster_info_page(si, si->cluster_info, offset);
+	unlock_cluster(ci);
+
+	swap_range_alloc(si, offset, 1);
+	slots[n_ret++] = swp_entry(si->type, offset);
+
+	/* got enough slots or reach max slots? */
+	if ((n_ret == nr) || (offset >= si->highest_bit))
+		goto done;
+
+	/* search for next available slot */
+
+	/* time to take a break? */
+	if (unlikely(--latency_ration < 0)) {
+		if (n_ret)
+			goto done;
+		spin_unlock(&si->lock);
+		cond_resched();
+		spin_lock(&si->lock);
+		latency_ration = LATENCY_LIMIT;
+	}
+
+	/* try to get more slots in cluster */
+	if (si->cluster_info) {
+		if (scan_swap_map_try_ssd_cluster(si, &offset, &scan_base))
+			goto checks;
+	} else if (si->cluster_nr && !si->swap_map[++offset]) {
+		/* non-ssd case, still more slots in cluster? */
+		--si->cluster_nr;
+		goto checks;
+	}
+
+	/*
+	 * Even if there's no free clusters available (fragmented),
+	 * try to scan a little more quickly with lock held unless we
+	 * have scanned too many slots already.
+	 */
+	if (!scanned_many) {
+		unsigned long scan_limit;
+
+		if (offset < scan_base)
+			scan_limit = scan_base;
+		else
+			scan_limit = si->highest_bit;
+		for (; offset <= scan_limit && --latency_ration > 0;
+		     offset++) {
+			if (!si->swap_map[offset])
+				goto checks;
+		}
+	}
+
+done:
+	set_cluster_next(si, offset + 1);
+	si->flags -= SWP_SCANNING;
+	return n_ret;
+scan_swap_alloc:
+	spin_unlock(&si->lock);
+	while (offset < scan_base + 256) { // scan_base + 256   READ_ONCE(si->highest_bit)
+		if (data_race(!si->swap_map[offset])) {
+			spin_lock(&si->lock);
+			goto checks;
+		}
+		if (vm_swap_full() &&
+		    READ_ONCE(si->swap_map[offset]) == SWAP_HAS_CACHE) {
+			spin_lock(&si->lock);
+			goto checks;
+		}
+		if (unlikely(--latency_ration < 0)) {
+			cond_resched();
+			latency_ration = LATENCY_LIMIT;
+			scanned_many = true;
+		}
+		// printk("ycc swap alloc offset used start-offset %d %d, %d", start_offset, offset, used_page);
+		offset++;
+	}
+	spin_lock(&si->lock);
+	// printk("ycc swap alloc not match start-offset %d, %d", start_offset, used_page);
+	if (page_pid != -1)
+	{
+		spin_lock(&swap_alloc_lock);
+		pid_swap_map->used_page = 1024;
+		spin_unlock(&swap_alloc_lock);
+	}
+	goto pid_to_hash;
+scan:
+	spin_unlock(&si->lock);
+	offset = scan_base = READ_ONCE(si->highest_bit) - 1;
+	while (offset >= si->lowest_bit) 
+	{
+		if (data_race(!si->swap_map[offset])) {
+			spin_lock(&si->lock);
+			goto checks;
+		}
+		if (vm_swap_full() &&
+		    READ_ONCE(si->swap_map[offset]) == SWAP_HAS_CACHE) {
+			spin_lock(&si->lock);
+			goto checks;
+		}
+		if (unlikely(--latency_ration < 0)) {
+			cond_resched();
+			latency_ration = LATENCY_LIMIT;
+			scanned_many = true;
+		}
+		offset--;
+	}
+
+	spin_lock(&si->lock);
+
+no_page:
+	si->flags -= SWP_SCANNING;
+	return n_ret;
+}
+
+#endif
+
 static int swap_alloc_cluster(struct swap_info_struct *si, swp_entry_t *slot)
 {
 	unsigned long idx;
@@ -1057,7 +1376,7 @@ static unsigned long scan_swap_map(struct swap_info_struct *si,
 	swp_entry_t entry;
 	int n_ret;
 
-	n_ret = scan_swap_map_slots(si, usage, 1, &entry);
+	n_ret = scan_swap_map_slots(si, usage, 1, &entry, NULL);
 
 	if (n_ret)
 		return swp_offset(entry);
@@ -1066,7 +1385,7 @@ static unsigned long scan_swap_map(struct swap_info_struct *si,
 
 }
 
-int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int reswp) // ycc modify
+int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int reswp, struct vm_area_struct *vma) // ycc modify
 {
 	unsigned long size = swap_entry_size(entry_size);
 	struct swap_info_struct *si, *next;
@@ -1127,12 +1446,25 @@ start_over:
 			spin_unlock(&si->lock);
 			goto nextsi;
 		}
+		if(!si->type) // ycc only do swap allocation on flash
+			vma=NULL;
 		if (size == SWAPFILE_CLUSTER) {
 			if (si->flags & SWP_BLKDEV)
 				n_ret = swap_alloc_cluster(si, swp_entries);
 		} else
-			n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE,
-						    n_goal, swp_entries);
+		{
+#ifdef swap_alloc_enable
+			if (!si->type)
+				n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal, swp_entries,
+							    vma);
+			else // ycc flash swap alloc
+				n_ret = swap_alloc_scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal,
+								       swp_entries, vma);
+
+#else
+			n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal, swp_entries, vma);
+#endif
+		}
 		spin_unlock(&si->lock);
 		if (n_ret || size == SWAPFILE_CLUSTER)
 			goto check_out;

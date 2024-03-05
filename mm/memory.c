@@ -86,6 +86,7 @@
 
 #include "pgalloc-track.h"
 #include "internal.h"
+#include <linux/hyswp_migrate.h> // ycc add
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/pagefault.h>
@@ -3590,6 +3591,10 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	void *shadow = NULL;
 	// ycc modify
 	unsigned long refault;
+	// unsigned long large_vma_size = (1UL) << PMD_SHIFT;
+	// fault in speed
+	u64 start_time = ktime_get_ns() / 1000; // 10^-6 sec
+
 	refault = -1;
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
@@ -3662,9 +3667,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 				if (shadow)
 					refault = workingset_refault(page, shadow);
 				// ycc modify
-				if(refault!=-1){
-					if(vma&&vma->vm_mm){
-						if(refault)
+				if (refault != -1) {
+					if (vma && vma->vm_mm) {
+						if (refault)
 							vma->vm_mm->nr_anon_refault++;
 						// printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 						vma->vm_mm->nr_anon_fault++;
@@ -3834,6 +3839,10 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 unlock:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 out:
+	// ycc modify
+	/* anon fault in speed */
+	anon_fault++;
+	anon_fault_lat = anon_fault_lat - start_time + ktime_get_ns() / 1000; // 10^-6 sec
 	return ret;
 out_nomap:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
@@ -3845,6 +3854,10 @@ out_release:
 		unlock_page(swapcache);
 		put_page(swapcache);
 	}
+	// ycc modify
+	/* anon fault in speed */
+	anon_fault++;
+	anon_fault_lat = anon_fault_lat - start_time + ktime_get_ns() / 1000; // 10^-6 sec
 	return ret;
 }
 

@@ -25,6 +25,7 @@
 #include <linux/psi.h>
 #include <linux/uio.h>
 #include <linux/sched/task.h>
+#include <linux/hyswp_migrate.h> // ycc add
 
 static struct bio *get_swap_bio(gfp_t gfp_flags,
 				struct page *page, bio_end_io_t end_io)
@@ -329,6 +330,7 @@ int swap_readpage(struct page *page, bool synchronous)
 	blk_qc_t qc;
 	struct gendisk *disk;
 	unsigned long pflags;
+	unsigned si_type;
 
 	VM_BUG_ON_PAGE(!PageSwapCache(page) && !synchronous, page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
@@ -352,8 +354,14 @@ int swap_readpage(struct page *page, bool synchronous)
 		struct address_space *mapping = swap_file->f_mapping;
 
 		ret = mapping->a_ops->readpage(swap_file, page);
-		if (!ret)
+		if (!ret) {
 			count_vm_event(PSWPIN);
+			si_type = sis->type; // ycc add
+			if (!si_type)
+				zram_in++;
+			else
+				flash_in++;
+		}
 		goto out;
 	}
 
@@ -361,6 +369,11 @@ int swap_readpage(struct page *page, bool synchronous)
 		ret = bdev_read_page(sis->bdev, swap_page_sector(page), page);
 		if (!ret) {
 			count_vm_event(PSWPIN);
+			si_type = sis->type; // ycc add
+			if (!si_type)
+				zram_in++;
+			else
+				flash_in++;
 			goto out;
 		}
 	}
@@ -384,6 +397,11 @@ int swap_readpage(struct page *page, bool synchronous)
 		bio->bi_private = current;
 	}
 	count_vm_event(PSWPIN);
+	si_type = sis->type; // ycc add
+	if (!si_type)
+		zram_in++;
+	else
+		flash_in++;
 	bio_get(bio);
 	qc = submit_bio(bio);
 	while (synchronous) {
