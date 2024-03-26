@@ -38,6 +38,11 @@
 #include "zram_drv.h"
 #include "zcomp.h"
 
+
+// ycc add
+static struct zram *main_zram = 0;
+extern void register_zram_idle(bool (*zram_idle_check)(unsigned));
+
 static DEFINE_IDR(zram_index_idr);
 /* idr index must be protected */
 static DEFINE_MUTEX(zram_index_mutex);
@@ -95,6 +100,20 @@ bool zram_test_flag(struct zram *zram, u32 index,
 			enum zram_pageflags flag)
 {
 	return zram->table[index].flags & BIT(flag);
+}
+
+/* ycc check zram idle*/
+static bool zram_idle_check(unsigned index)
+{
+	bool idle_flag;
+	if (!main_zram) {
+		printk("ycc main_zram=0");
+		return false;
+	}
+	down_read(&main_zram->init_lock);
+	idle_flag = zram_test_flag(main_zram, index, ZRAM_IDLE);
+	up_read(&main_zram->init_lock);
+	return idle_flag;
 }
 
 static void zram_set_flag(struct zram *zram, u32 index,
@@ -1610,6 +1629,9 @@ static void zram_reset_device(struct zram *zram)
 	comp = zram->comp;
 	disksize = zram->disksize;
 	zram->disksize = 0;
+	
+	/* ycc register zram idle */
+	register_zram_idle(&zram_idle_check);
 
 	set_capacity(zram->disk, 0);
 	part_stat_set_all(&zram->disk->part0, 0);
@@ -1879,6 +1901,9 @@ static int zram_add(void)
 
 	zram_debugfs_register(zram);
 	pr_info("Added device: %s\n", zram->disk->disk_name);
+	main_zram = zram;
+	/* ycc register zram idle */
+	register_zram_idle(&zram_idle_check);
 	return device_id;
 
 out_free_queue:
@@ -2014,6 +2039,9 @@ static void destroy_devices(void)
 static int __init zram_init(void)
 {
 	int ret;
+
+	/* ycc register zram idle */
+	register_zram_idle(&zram_idle_check);
 
 	ret = class_register(&zram_control_class);
 	if (ret) {

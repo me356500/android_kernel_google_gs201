@@ -14,6 +14,7 @@
 #include <linux/printk.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/vmalloc.h>
 
 int hyswp_scan_sec = 30;
 static unsigned short scan_round;
@@ -24,6 +25,10 @@ static int local_zram_usage;
 int page_demote_cnt = 0, page_promote_cnt = 0;
 int PMD_cnt = 0, vma_cnt = 0, large_vma_cnt = 0;
 enum si_dev { zram_dev = 0, flash_dev };
+
+/* zram idle */
+// unsigned char *zram_idle = NULL;
+static bool (*zram_idle_check_ptr)(unsigned) = NULL;
 
 /* statistic */
 // static DEFINE_MUTEX(distribution_lock);
@@ -44,6 +49,13 @@ unsigned long zram_in = 0, flash_in = 0;
 
 /* swap slot hole effect */
 unsigned long virt_prefetch = 0, actual_prefetch = 0;
+unsigned long swap_ra_io = 0, swap_ra_cnt = 0;
+
+/* avg swap_ra size */
+unsigned long total_ra_cnt = 0;
+unsigned long total_ra_size_cnt[10];
+unsigned long actual_ra_page[max_ra_page];
+unsigned long ra_io_cnt[max_ra_page];
 
 /* app swap cache hit and ra */
 #define total_app_slot 50
@@ -82,6 +94,14 @@ static void init_statistic()
 		app_swap_cache_hit[i] = 0;
 	}
 
+	/* avg swap_ra size */
+	for (i = 0; i < 10; i++)
+		total_ra_size_cnt[i] = 0;
+	for (i = 0; i < max_ra_page; i++) {
+		actual_ra_page[i] = 0;
+		ra_io_cnt[i] = 0;
+	}
+
 	spin_unlock(&distribution_lock);
 }
 
@@ -96,6 +116,24 @@ static void reset_swap_page_distribution()
 	spin_unlock(&distribution_lock);
 }
 
+/* zram idle */
+void register_zram_idle(bool (*zram_idle_check)(unsigned))
+{
+	zram_idle_check_ptr = zram_idle_check;
+	if (!zram_idle_check_ptr)
+		printk("ycc register zram idle check fail");
+	else
+		printk("ycc register zram idle check success");
+}
+EXPORT_SYMBOL(register_zram_idle);
+
+bool call_zram_idle_check(unsigned index)
+{
+	if (zram_idle_check_ptr)
+		return zram_idle_check_ptr(index);
+	printk("ycc non of zram_idle_ptr");
+	return false;
+}
 
 /* statistic anon fault in each mm */
 void put_mm_fault_distribution(unsigned value)
@@ -221,7 +259,7 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 			page_promote_cnt++;
 			count_vm_event(BALLOON_INFLATE);
 		}
-		count_vm_event(SWAP_RA);
+		// count_vm_event(SWAP_RA);
 
 	try_next:
 		pte = pte_offset_map(pmd, addr);
@@ -443,17 +481,18 @@ static void show_info()
 {
 	char msg[1024] = { 0 };
 	int i;
+	swp_entry_t entry;
 	// return;
 	/* vma anon page fault latency */
-	printk("ycc hyswp_info anon_fault_lat fault>avg lat>lat (10^-6 sec), %llu, %llu, %llu", anon_fault,
-	       anon_fault_lat / anon_fault, anon_fault_lat);
-	
+	printk("ycc hyswp_info anon_fault_lat fault>avg lat>lat (10^-6 sec), %llu, %llu, %llu",
+	       anon_fault, anon_fault_lat / anon_fault, anon_fault_lat);
+
 	/* app swap cache hit and ra */
 	spin_lock(&distribution_lock);
 	sprintf(msg, "swap_ra_hit");
 	for (i = 0; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_swap_cache_hit[i]);
-	printk("ycc hyswp_info swap_ra_hit,scan_round,%d, %s", scan_round, msg);	
+	printk("ycc hyswp_info swap_ra_hit,scan_round,%d, %s", scan_round, msg);
 
 	sprintf(msg, "swap_total_ra");
 	for (i = 0; i < total_app_slot; i++)
@@ -461,12 +500,54 @@ static void show_info()
 	printk("ycc hyswp_info swap_total_ra,scan_round,%d, %s", scan_round, msg);
 
 	/* swap on zram or flash */
-	printk("ycc hyswp_info swap_in zram/flash scan_round(%d), %u, %u", scan_round, zram_in, flash_in);
-	
-	/* swap slot hole effect */
-	printk("ycc hyswp_info swap_hole_effect scan_round(%d), %u, %u", scan_round, actual_prefetch, virt_prefetch);
+	printk("ycc hyswp_info swap_in zram/flash scan_round(%d), %u, %u", scan_round, zram_in,
+	       flash_in);
 
+	/* swap slot hole effect */
+	printk("ycc hyswp_info swap_hole_effect scan_round(%d), %u, %u", scan_round,
+	       actual_prefetch, virt_prefetch);
+	printk("ycc hyswp_info flash_swap_io_effect scan_round(%d), %u, %u", scan_round, swap_ra_io,
+	       swap_ra_cnt);
+
+	/* avg swap_ra size */
+	if (total_ra_cnt != 0) {
+		sprintf(msg, "ra_size");
+		for (i = 0; i < 10; i++)
+			sprintf(msg, "%s, %u", msg, total_ra_size_cnt[i]);
+		printk("ycc hyswp_info swap_ra_cnt scan_round(%d), %s", scan_round, msg);
+	}
+
+	sprintf(msg, "actual_ra_page");
+	for (i = 0; i < max_ra_page; i++)
+		sprintf(msg, "%s, %u", msg, actual_ra_page[i]);
+	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
+
+	sprintf(msg, "ra_io_cnt");
+	for (i = 0; i < max_ra_page; i++)
+		sprintf(msg, "%s, %u", msg, ra_io_cnt[i]);
+	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
 	spin_unlock(&distribution_lock);
+
+	/* zram idle */
+	entry = swp_entry(0, 1);
+	if (swp_swap_info(entry) && scan_round % 2 == 0) {
+		struct swap_info_struct *si;
+		si = get_swap_device(entry);
+		if (si) {
+			unsigned idle = 0, scan = 0;
+			for (i = 1; i < si->pages - 1; i++) {
+				if (si->swap_map[i]) {
+					scan++;
+					if (call_zram_idle_check(i))
+						idle++;
+				}
+			}
+			printk("ycc hyswp_info zram_idle_reg scan_round(%d), %u, %u", scan_round,
+			       idle, scan);
+			put_swap_device(si);
+		}
+	}
+	printk("ycc hyswp_info -----------------------------------------------");
 }
 
 static int hyswp_migrate(void *p)
@@ -477,6 +558,12 @@ static int hyswp_migrate(void *p)
 	// allow_signal(SIGUSR1);
 
 	scan_round = 0;
+
+	/* zram idle */
+	// zram_idle = vzalloc(max_zram_idle_index);
+	// if (!zram_idle)
+	// 	printk("ycc fail to alloc zram idle");
+
 	init_statistic();
 
 	/* app swap cache hit and ra */

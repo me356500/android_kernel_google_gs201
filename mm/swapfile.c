@@ -1422,7 +1422,6 @@ start_over:
 		// printk("ycc swap_type %d, highest %d, lowest %d, prio %d, entry_size %d, n_goal %d", si->type, si->highest_bit, si->lowest_bit, si->prio, entry_size, n_goal);
 		if(plist_node_empty(&si->avail_lists[node])||plist_node_empty(&next->avail_lists[node])){
 			NotDegrade=1;
-			printk("ycc zram_empty or !next work");
 		}
 		if(!plist_node_empty(&next->avail_lists[node])&&!NotDegrade&&!si->type){
 			spin_lock(&swap_avail_lock);
