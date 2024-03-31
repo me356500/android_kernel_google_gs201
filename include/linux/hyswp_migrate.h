@@ -12,7 +12,8 @@ extern int hyswp_scan_sec;
 extern volatile int zram_usage;
 
 /* zram idle */
-// extern unsigned char *zram_idle;
+#define max_zram_idle_index 3*1024*1024/4 + 100
+extern unsigned char *pre_zram_idle, *this_round_page_idle;
 extern void register_zram_idle(bool (*zram_idle_check)(unsigned));
 extern bool call_zram_idle_check(unsigned index);
 

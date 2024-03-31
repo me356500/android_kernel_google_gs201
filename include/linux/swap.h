@@ -320,7 +320,7 @@ struct vma_swap_readahead {
 /* linux/mm/workingset.c */
 void workingset_age_nonresident(struct lruvec *lruvec, unsigned long nr_pages);
 void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg);
-int workingset_refault(struct page *page, void *shadow);  // ycc modify
+int workingset_refault(struct page *page, void *shadow, unsigned skip_cnt);  // ycc modify
 void workingset_activation(struct page *page);
 
 /* Only track the nodes of mappings with shadow entries */

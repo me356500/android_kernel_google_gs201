@@ -3665,7 +3665,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 				shadow = get_shadow_from_swap_cache(entry);
 				if (shadow)
-					refault = workingset_refault(page, shadow);
+					refault = workingset_refault(page, shadow, 0); // ycc modify
 				// ycc modify
 				if (refault != -1) {
 					if (vma && vma->vm_mm) {

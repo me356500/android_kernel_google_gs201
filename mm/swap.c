@@ -478,6 +478,11 @@ void mark_page_accessed(struct page *page)
 		return;
 	}
 
+	if (PageReswapin(page)) { // zram migration used
+		// printk("ycc zram migration used");
+		ClearPageReswapin(page);
+	}
+
 	if (!PageReferenced(page)) {
 		SetPageReferenced(page);
 	} else if (PageUnevictable(page)) {

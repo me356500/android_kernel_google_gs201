@@ -369,6 +369,15 @@ swp_entry_t get_swap_page(struct page *page)
 
 		// printk("ycc zram usage, %d",zram_usage);
 
+		/* zram idle page migrate -> need to downgrade */
+		if(PageReswapin(page)){
+			// printk("ycc zram idle page swap-out");
+			ClearPageReswapin(page);
+			get_swap_pages(1, &entry, 1, 0, vma);
+			count_vm_event(THP_ZERO_PAGE_ALLOC);
+			goto out;
+		}
+
 		/*select mm_struct to swap*/
 		anon_vma = page_anon_vma(page);
 		if (anon_vma) {

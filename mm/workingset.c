@@ -380,7 +380,7 @@ void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg)
  * evicted page in the context of the node and the memcg whose memory
  * pressure caused the eviction.
  */
-int workingset_refault(struct page *page, void *shadow) // ycc modify
+int workingset_refault(struct page *page, void *shadow, unsigned skip_cnt) // ycc modify
 {
 	bool file = page_is_file_lru(page);
 	struct mem_cgroup *eviction_memcg;
@@ -397,8 +397,7 @@ int workingset_refault(struct page *page, void *shadow) // ycc modify
 	// ycc modify
 	int anon_refault;
 
-
-	anon_refault=1;
+	anon_refault = 1;
 
 	if (lru_gen_enabled()) {
 		lru_gen_refault(page, shadow);
@@ -485,13 +484,17 @@ int workingset_refault(struct page *page, void *shadow) // ycc modify
 
 	// ycc modify
 	// printk("ycc refault %u %lu %lu",file,refault_distance,workingset_size);
-	if(!file){
-		if(refault_distance>workingset_size)
-			anon_refault=0;
+	if (!file) {
+		if (refault_distance > workingset_size)
+			anon_refault = 0;
 	}
 
 	if (refault_distance > workingset_size)
 		goto out;
+	if (skip_cnt) { // zram migration
+		SetPageReswapin(page);
+		goto out;
+	}
 
 	SetPageActive(page);
 	workingset_age_nonresident(lruvec, thp_nr_pages(page));

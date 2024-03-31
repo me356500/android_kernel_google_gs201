@@ -679,7 +679,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct v
 	}
 
 	if (shadow)
-		refault = workingset_refault(page, shadow);
+		refault = workingset_refault(page, shadow, skip_cnt);
 	// ycc modify
 	if (!skip_cnt && refault != -1) {
 		if (vma && vma->vm_mm) {

@@ -27,7 +27,9 @@ int PMD_cnt = 0, vma_cnt = 0, large_vma_cnt = 0;
 enum si_dev { zram_dev = 0, flash_dev };
 
 /* zram idle */
-// unsigned char *zram_idle = NULL;
+unsigned this_idle_cnt = 0, pre_idle_cnt = 0;
+unsigned char *pre_zram_idle = NULL;
+unsigned char *this_round_page_idle = NULL;
 static bool (*zram_idle_check_ptr)(unsigned) = NULL;
 
 /* statistic */
@@ -61,7 +63,6 @@ unsigned long ra_io_cnt[max_ra_page];
 #define total_app_slot 50
 unsigned app_total_ra[total_app_slot];
 unsigned app_swap_cache_hit[total_app_slot];
-
 
 /* app swap cache hit and ra */
 void put_swap_ra_count(int app_uid, int ra_hit_flag)
@@ -534,16 +535,37 @@ static void show_info()
 		struct swap_info_struct *si;
 		si = get_swap_device(entry);
 		if (si) {
-			unsigned idle = 0, scan = 0;
+			unsigned idle = 0, scan = 0, match_last_round_idle = 0;
 			for (i = 1; i < si->pages - 1; i++) {
 				if (si->swap_map[i]) {
+					bool idle_flag = call_zram_idle_check(i);
 					scan++;
-					if (call_zram_idle_check(i))
+					if (idle_flag)
 						idle++;
+					if(idle_flag && pre_zram_idle[i]) /* idle page update*/
+						match_last_round_idle++;
 				}
 			}
-			printk("ycc hyswp_info zram_idle_reg scan_round(%d), %u, %u", scan_round,
-			       idle, scan);
+			printk("ycc hyswp_info zram_idle_reg scan_round(%d), %u, %u, %u, %u, %u", scan_round,
+			       idle, scan, match_last_round_idle, pre_idle_cnt, this_idle_cnt);
+
+			/* idle page update*/
+			if (idle > this_idle_cnt) {
+				printk("ycc hyswp_info idle_zram_update");
+				for (i = 1; i < si->pages - 1; i++) {
+					pre_zram_idle[i] = this_round_page_idle[i];
+					pre_idle_cnt = this_idle_cnt;
+				}
+			}
+			this_idle_cnt=0;
+			for (i = 1; i < si->pages - 1; i++) {
+				if (si->swap_map[i] && call_zram_idle_check(i)) {
+					this_idle_cnt++;
+					this_round_page_idle[i] = 1;
+				} else
+					this_round_page_idle[i] = 0;
+			}
+			/* idle page update*/
 			put_swap_device(si);
 		}
 	}
@@ -560,9 +582,10 @@ static int hyswp_migrate(void *p)
 	scan_round = 0;
 
 	/* zram idle */
-	// zram_idle = vzalloc(max_zram_idle_index);
-	// if (!zram_idle)
-	// 	printk("ycc fail to alloc zram idle");
+	pre_zram_idle = vzalloc(max_zram_idle_index);
+	this_round_page_idle = vzalloc(max_zram_idle_index);
+	if (!pre_zram_idle || !this_round_page_idle)
+		printk("ycc fail to alloc pre_zram_idle");
 
 	init_statistic();
 
