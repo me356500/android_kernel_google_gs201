@@ -26,11 +26,24 @@ int page_demote_cnt = 0, page_promote_cnt = 0;
 int PMD_cnt = 0, vma_cnt = 0, large_vma_cnt = 0;
 enum si_dev { zram_dev = 0, flash_dev };
 
+/* migration */
+struct sysinfo i;
+unsigned free_page_cnt = 0, avail_page_cnt = 0;
+
 /* zram idle */
+static DEFINE_SPINLOCK(zram_idle_lock);
 unsigned this_idle_cnt = 0, pre_idle_cnt = 0;
 unsigned char *pre_zram_idle = NULL;
 unsigned char *this_round_page_idle = NULL;
 static bool (*zram_idle_check_ptr)(unsigned) = NULL;
+enum zram_idle_stat_enum { zram_idle_NOOP = 0, zram_idle_wait, zram_idle_migration };
+#define wait_stat_round 10 * 2
+static unsigned mark_idle_round = 0, idle_scan_mm_value = 20, pre_idle_scan_mm_value = 10;
+static unsigned zram_idle_stat = zram_idle_NOOP;
+static unsigned zram_idle_migration_cnt = 0;
+static bool zram_idle_migration_flag = false;
+/* get zram access time */
+static unsigned (*get_zram_access_time_ptr)(unsigned) = NULL;
 
 /* statistic */
 // static DEFINE_MUTEX(distribution_lock);
@@ -64,11 +77,16 @@ unsigned long ra_io_cnt[max_ra_page];
 unsigned app_total_ra[total_app_slot];
 unsigned app_swap_cache_hit[total_app_slot];
 
+/* get zram access time */
+unsigned long app_zram_age[total_app_slot];
+unsigned long app_zram_cnt[total_app_slot];
+int mm_uid;
+
 /* app swap cache hit and ra */
 void put_swap_ra_count(int app_uid, int ra_hit_flag)
 {
 	spin_lock(&distribution_lock);
-	if (app_uid >= 10200 && app_uid < 10300) {
+	if (app_uid >= 10200 && app_uid < 10250) {
 		int slot = app_uid % total_app_slot;
 		if (ra_hit_flag)
 			app_swap_cache_hit[slot]++;
@@ -93,6 +111,7 @@ static void init_statistic()
 	for (i = 0; i < total_app_slot; i++) {
 		app_total_ra[i] = 0;
 		app_swap_cache_hit[i] = 0;
+		app_zram_cnt[i] = app_zram_age[i] = 0;
 	}
 
 	/* avg swap_ra size */
@@ -114,6 +133,47 @@ static void reset_swap_page_distribution()
 		zram_distribution[i] = 0;
 		flash_distribution[i] = 0;
 	}
+	spin_unlock(&distribution_lock);
+}
+
+/* get zram access time */
+void register_zram_access(unsigned (*zram_access_time)(unsigned))
+{
+	get_zram_access_time_ptr = zram_access_time;
+	if (!get_zram_access_time_ptr)
+		printk("ycc register zram access time fail");
+	else
+		printk("ycc register zram access time success");
+}
+EXPORT_SYMBOL(register_zram_access);
+
+unsigned call_zram_access_time(unsigned index)
+{
+	if (get_zram_access_time_ptr)
+		return get_zram_access_time_ptr(index);
+	printk("ycc non of zram_access_ptr");
+	return 0;
+}
+
+void put_zram_acc_time(int uid, unsigned acc_time)
+{
+	spin_lock(&distribution_lock);
+
+	if (uid >= 10200 && uid < 10250) {
+		int slot = uid % total_app_slot;
+		app_zram_cnt[slot]++;
+		app_zram_age[slot] += acc_time;
+	}
+	spin_unlock(&distribution_lock);
+}
+
+static void reset_zram_acc_time()
+{
+	int i;
+	spin_lock(&distribution_lock);
+	for (i = 0; i < total_app_slot; i++)
+		app_zram_cnt[i] = app_zram_age[i] = 0;
+	mm_uid = -1;
 	spin_unlock(&distribution_lock);
 }
 
@@ -199,21 +259,39 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 
 	if (si_type <= 1)
 		si = swap_info[si_type];
+	else
+		si = swap_info[0];
 	pte = pte_offset_map(pmd, addr);
 	do {
 		if (!is_swap_pte(*pte))
 			continue;
-
 		entry = pte_to_swp_entry(*pte);
 		put_swap_page_distribution(swp_type(entry));
+		/* get zram access time */
+		if (swap_page_distribution)
+			if (si && !swp_type(entry) && mm_uid >= 10200 && mm_uid < 10250) {
+				offset = swp_offset(entry);
+				if (si->swap_map[offset] && si->swap_map[offset] < SWAP_MAP_MAX) {
+					unsigned acc_time = call_zram_access_time(offset);
+					put_zram_acc_time(mm_uid, acc_time);
+				}
+			}
 		if (swp_type(entry) != si_type)
 			continue;
-
 		offset = swp_offset(entry);
 		page_ref_cnt = __swp_swapcount(swp_entry(swp_type(entry), offset));
 		if (page_ref_cnt != 1 && si_type == zram_dev)
 			continue;
-
+		if (zram_idle_migration_flag) { // zram idle page migrate
+			if (offset >= max_zram_idle_index - 200)
+				continue;
+			spin_lock(&zram_idle_lock);
+			if (!call_zram_idle_check(offset)) {
+				spin_unlock(&zram_idle_lock);
+				continue;
+			}
+			spin_unlock(&zram_idle_lock);
+		}
 		pte_unmap(pte);
 		swap_map = &si->swap_map[offset];
 		page = lookup_swap_cache(entry, vma, addr, 0);
@@ -223,7 +301,6 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 				.address = addr,
 				.pmd = pmd,
 			};
-
 			page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE, &vmf, 1);
 		}
 		if (!page) {
@@ -232,7 +309,6 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 			// return -ENOMEM;
 			goto try_next;
 		}
-
 		lock_page(page);
 		wait_on_page_writeback(page);
 		ret = unuse_pte(vma, pmd, addr, entry, page);
@@ -242,7 +318,6 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 			// goto out;
 			goto try_next;
 		}
-
 		try_to_free_swap(page);
 		unlock_page(page);
 		put_page(page);
@@ -253,14 +328,15 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 		// 	page_promote_cnt++;
 		// 	count_vm_event(PG_PROMOTE);
 		// }
-		if (si_type == zram_dev) { // mark: tmp to count demote, promote
+		if (!zram_idle_migration_flag) { // mark: tmp to count demote, promote
 			page_demote_cnt++;
 			count_vm_event(BALLOON_DEFLATE);
 		} else {
-			page_promote_cnt++;
+			zram_idle_migration_cnt++; // zram idle page migration
 			count_vm_event(BALLOON_INFLATE);
 		}
-		// count_vm_event(SWAP_RA);
+
+		rotate_reclaimable_page(page);
 
 	try_next:
 		pte = pte_offset_map(pmd, addr);
@@ -348,7 +424,7 @@ static void scan_vma(struct mm_struct *mm, unsigned si_type)
 	mmap_read_unlock(mm);
 }
 
-static void pseudo_scan_vma(struct mm_struct *mm)
+static void pseudo_scan_vma(struct mm_struct *mm) // count large/small vma
 {
 	struct vm_area_struct *vma;
 	unsigned long large_vma_size = (1UL) << PMD_SHIFT;
@@ -386,6 +462,7 @@ static void start_zram_migrate()
 	PMD_cnt = vma_cnt = large_vma_cnt = 0;
 
 	while ((p = p->next) != &init_mm.mmlist) {
+		mm_uid = -1;
 		mm = list_entry(p, struct mm_struct, mmlist);
 		if (!mmget_not_zero(mm))
 			continue;
@@ -428,6 +505,73 @@ static void start_zram_migrate()
 		show_mm_distribution();
 }
 
+static void start_zram_idle_migrate()
+{
+	struct mm_struct *mm;
+	struct mm_struct *prev_mm;
+	struct list_head *p;
+	unsigned long refault_ratio = 200;
+	unsigned mm_cnt = 0, mm_demote_cnt = 0;
+	unsigned long anon_size = 0, swap_size = 0;
+
+	if (zram_idle_stat != zram_idle_migration) {
+		printk("ycc hyswp_migrate: skip zram_idle_migration zram_idle_stat(%u)",
+		       zram_idle_stat);
+		return;
+	}
+
+	zram_idle_migration_flag = true;
+	zram_idle_migration_cnt = 0;
+
+	// start_idle_migrate:
+	prev_mm = &init_mm;
+	mmget(prev_mm);
+
+	spin_lock(&mmlist_lock);
+	p = &init_mm.mmlist;
+
+	while ((p = p->next) != &init_mm.mmlist) {
+		mm_uid = -1;
+		mm = list_entry(p, struct mm_struct, mmlist);
+		if (!mmget_not_zero(mm))
+			continue;
+		spin_unlock(&mmlist_lock);
+		mmput(prev_mm);
+		prev_mm = mm;
+		anon_size = get_mm_counter(mm, MM_ANONPAGES); // unit : page
+		swap_size = get_mm_counter(mm, MM_SWAPENTS);
+
+		if (mm->nr_anon_fault)
+			refault_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
+		mm_cnt++;
+		if (zram_idle_migration_cnt < free_page_cnt) {
+			if (refault_ratio > pre_idle_scan_mm_value &&
+			    refault_ratio <= idle_scan_mm_value && swap_size) {
+				mm_demote_cnt++;
+				scan_vma(mm, zram_dev);
+			}
+		}
+		cond_resched();
+		spin_lock(&mmlist_lock);
+	}
+	spin_unlock(&mmlist_lock);
+	mmput(prev_mm);
+
+	if (zram_idle_migration_cnt < free_page_cnt) {
+		pre_idle_scan_mm_value = idle_scan_mm_value;
+		idle_scan_mm_value += 10;
+		if (idle_scan_mm_value > 95)
+			zram_idle_stat = zram_idle_NOOP;
+		idle_scan_mm_value = min((unsigned)90, idle_scan_mm_value);
+	}
+
+	zram_idle_migration_flag = false;
+
+	printk("ycc hyswp_migrate: scan_mm(%d), zram_idle_demote_mm(%d), mm_th(%d/%d), zram_idle_page_demote(%d)",
+	       mm_cnt, mm_demote_cnt, pre_idle_scan_mm_value, idle_scan_mm_value,
+	       zram_idle_migration_cnt);
+}
+
 static void scan_mm_swap_page_count() // count zram, flash page in each mm
 {
 	/* statistic zram, flash page in each mm */
@@ -449,8 +593,9 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 	PMD_cnt = vma_cnt = large_vma_cnt = 0;
 
 	reset_swap_page_distribution();
-
+	reset_zram_acc_time();
 	while ((p = p->next) != &init_mm.mmlist) {
+		mm_uid = -1;
 		mm = list_entry(p, struct mm_struct, mmlist);
 		if (!mmget_not_zero(mm))
 			continue;
@@ -465,6 +610,10 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 		mm_cnt++;
 		avg_anon_fault += mm->nr_anon_fault;
 
+		/* get zram access time */
+		if (mm->owner && mm->owner->cred)
+			mm_uid = mm->owner->cred->uid.val;
+
 		scan_vma(mm, 5); // si_type is invalid
 		cond_resched();
 		spin_lock(&mmlist_lock);
@@ -478,11 +627,76 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 		show_swap_page_distribution();
 }
 
+static void zram_idle_update()
+{
+	int i;
+	swp_entry_t entry;
+	/* zram idle */
+	entry = swp_entry(0, 1);
+	if (swp_swap_info(entry)) {
+		struct swap_info_struct *si;
+		si = get_swap_device(entry);
+		if (si) {
+			unsigned idle = 0, scan = 0, match_last_round_idle = 0;
+			unsigned non_swp = 0;
+			for (i = 1; i < si->pages - 1; i++) {
+				if (si->swap_map[i]) {
+					bool idle_flag;
+					scan++;
+					if (si->swap_map[i] >= SWAP_MAP_MAX) {
+						non_swp++;
+						continue;
+					}
+					spin_lock(&zram_idle_lock);
+					idle_flag = call_zram_idle_check(i);
+					spin_unlock(&zram_idle_lock);
+					if (idle_flag)
+						idle++;
+					if (idle_flag && pre_zram_idle[i]) /* idle page update*/
+						match_last_round_idle++;
+				}
+			}
+			printk("ycc hyswp_info zram_idle_reg scan_round(%d), %u, %u, %u, %u, %u, bad, %u",
+			       scan_round, idle, scan, match_last_round_idle, pre_idle_cnt,
+			       this_idle_cnt, non_swp);
+
+			/* idle page update*/
+			if (idle > this_idle_cnt) {
+				mark_idle_round = scan_round;
+				zram_idle_stat = zram_idle_wait;
+				idle_scan_mm_value = 20;
+				pre_idle_scan_mm_value = 10;
+				printk("ycc hyswp_info idle_zram_update mark_idle_round(%u)",
+				       mark_idle_round);
+				for (i = 1; i < si->pages - 1; i++) {
+					pre_zram_idle[i] = this_round_page_idle[i];
+					pre_idle_cnt = this_idle_cnt;
+				}
+			}
+			this_idle_cnt = 0;
+			for (i = 1; i < si->pages - 1; i++) {
+				spin_lock(&zram_idle_lock);
+				if (si->swap_map[i] && call_zram_idle_check(i)) {
+					this_idle_cnt++;
+					this_round_page_idle[i] = 1;
+				} else
+					this_round_page_idle[i] = 0;
+				spin_unlock(&zram_idle_lock);
+			}
+			/* idle page update*/
+			put_swap_device(si);
+		}
+	}
+
+	if (scan_round % 30 == 0 && fault_zram_acc_time) {
+		reset_zram_acc_time();
+	}
+}
+
 static void show_info()
 {
 	char msg[1024] = { 0 };
 	int i;
-	swp_entry_t entry;
 	// return;
 	/* vma anon page fault latency */
 	printk("ycc hyswp_info anon_fault_lat fault>avg lat>lat (10^-6 sec), %llu, %llu, %llu",
@@ -527,48 +741,18 @@ static void show_info()
 	for (i = 0; i < max_ra_page; i++)
 		sprintf(msg, "%s, %u", msg, ra_io_cnt[i]);
 	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
-	spin_unlock(&distribution_lock);
 
-	/* zram idle */
-	entry = swp_entry(0, 1);
-	if (swp_swap_info(entry) && scan_round % 2 == 0) {
-		struct swap_info_struct *si;
-		si = get_swap_device(entry);
-		if (si) {
-			unsigned idle = 0, scan = 0, match_last_round_idle = 0;
-			for (i = 1; i < si->pages - 1; i++) {
-				if (si->swap_map[i]) {
-					bool idle_flag = call_zram_idle_check(i);
-					scan++;
-					if (idle_flag)
-						idle++;
-					if(idle_flag && pre_zram_idle[i]) /* idle page update*/
-						match_last_round_idle++;
-				}
-			}
-			printk("ycc hyswp_info zram_idle_reg scan_round(%d), %u, %u, %u, %u, %u", scan_round,
-			       idle, scan, match_last_round_idle, pre_idle_cnt, this_idle_cnt);
-
-			/* idle page update*/
-			if (idle > this_idle_cnt) {
-				printk("ycc hyswp_info idle_zram_update");
-				for (i = 1; i < si->pages - 1; i++) {
-					pre_zram_idle[i] = this_round_page_idle[i];
-					pre_idle_cnt = this_idle_cnt;
-				}
-			}
-			this_idle_cnt=0;
-			for (i = 1; i < si->pages - 1; i++) {
-				if (si->swap_map[i] && call_zram_idle_check(i)) {
-					this_idle_cnt++;
-					this_round_page_idle[i] = 1;
-				} else
-					this_round_page_idle[i] = 0;
-			}
-			/* idle page update*/
-			put_swap_device(si);
-		}
+	/* get zram access time */
+	sprintf(msg, "zram_acc");
+	for (i = 20; i < total_app_slot; i++) {
+		if (app_zram_cnt[i])
+			sprintf(msg, "%s, %llu", msg, app_zram_age[i] / app_zram_cnt[i]);
+		else
+			sprintf(msg, "%s, -1", msg);
 	}
+	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
+
+	spin_unlock(&distribution_lock);
 	printk("ycc hyswp_info -----------------------------------------------");
 }
 
@@ -605,17 +789,33 @@ static int hyswp_migrate(void *p)
 		BUG_ON(scan_secs <= 0);
 		zram_usage = get_zram_usage();
 		local_zram_usage = zram_usage;
-		printk("ycc hyswp_migrate: (%d) zram_usage (%d), swapcache(%d)", scan_round,
-		       local_zram_usage, total_swapcache_pages());
+		// free page info
+		si_meminfo(&i);
+		free_page_cnt = i.freeram;
+		avail_page_cnt = si_mem_available();
+
+		printk("ycc hyswp_migrate: (%d) zram_usage (%d), swapcache(%d) free_pg(%u), avail_pg(%u)",
+		       scan_round, local_zram_usage, total_swapcache_pages(), free_page_cnt,
+		       avail_page_cnt);
 		scan_round++;
+
+		free_page_cnt = min((unsigned int)5000, free_page_cnt);
+		zram_idle_update();
 		if (dispatch_enable && check_hybird_swap()) {
 			// for_each_node_state(nid, N_MEMORY)
 			//     knewanond_scan_node(NODE_DATA(nid));
 			if (local_zram_usage >= zran_usage_th && local_zram_usage <= 100) {
+				zram_idle_migration_flag = false;
 				start_zram_migrate();
+				if (zram_idle_stat == zram_idle_migration)
+					start_zram_idle_migrate();
 			}
 		} else if (swap_page_distribution) {
 			scan_mm_swap_page_count();
+		}
+		if (zram_idle_stat == zram_idle_wait) {
+			if (mark_idle_round + wait_stat_round <= scan_round)
+				zram_idle_stat = zram_idle_migration;
 		}
 		show_info();
 		schedule_timeout_interruptible(scan_secs * HZ);

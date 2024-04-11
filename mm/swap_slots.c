@@ -347,8 +347,9 @@ swp_entry_t get_swap_page(struct page *page)
 			if (vma)
 				break;
 		}
-		if (vma->vm_start + large_vma_size > vma->vm_end)
-			vma = NULL;
+		if (vma)
+			if (vma->vm_start + large_vma_size > vma->vm_end)
+				vma = NULL;
 	}
 
 	// ycc page to uid or pid

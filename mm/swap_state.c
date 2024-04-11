@@ -516,7 +516,21 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		/* page fault in which mm_struct */
 		if (show_fault_distribution)
 			put_mm_fault_distribution(refault_activate_ratio);
-		
+		/* get zram access time */
+		if (fault_zram_acc_time) {
+			if (si && !swp_type(entry) && page_uid >= 10200 && page_uid < 10250) {
+				unsigned long offset;
+				offset = swp_offset(entry);
+				if (si->swap_map[offset] && si->swap_map[offset] < SWAP_MAP_MAX) {
+					struct timespec64 ts;
+					unsigned acc_time, lifetime;
+					acc_time = call_zram_access_time(offset);
+					ts = ktime_to_timespec64(ktime_get_boottime());
+					lifetime = (unsigned)ts.tv_sec - acc_time;
+					put_zram_acc_time(page_uid, lifetime);
+				}
+			}
+		}
 	}
 
 	INC_CACHE_INFO(find_total);

@@ -12,10 +12,14 @@ extern int hyswp_scan_sec;
 extern volatile int zram_usage;
 
 /* zram idle */
-#define max_zram_idle_index 3*1024*1024/4 + 100
+#define max_zram_idle_index 3 * 1024 * 1024 / 4 + 100
 extern unsigned char *pre_zram_idle, *this_round_page_idle;
 extern void register_zram_idle(bool (*zram_idle_check)(unsigned));
 extern bool call_zram_idle_check(unsigned index);
+/* get zram access time */
+#define fault_zram_acc_time false
+extern void put_zram_acc_time(int uid, unsigned acc_time);
+extern unsigned call_zram_access_time(unsigned index);
 
 /* statistic */
 #define show_fault_distribution false

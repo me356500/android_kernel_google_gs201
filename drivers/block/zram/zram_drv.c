@@ -42,6 +42,7 @@
 // ycc add
 static struct zram *main_zram = 0;
 extern void register_zram_idle(bool (*zram_idle_check)(unsigned));
+extern void register_zram_access(unsigned (*zram_access_time)(unsigned));
 
 static DEFINE_IDR(zram_index_idr);
 /* idr index must be protected */
@@ -102,20 +103,6 @@ bool zram_test_flag(struct zram *zram, u32 index,
 	return zram->table[index].flags & BIT(flag);
 }
 
-/* ycc check zram idle*/
-static bool zram_idle_check(unsigned index)
-{
-	bool idle_flag;
-	if (!main_zram) {
-		printk("ycc main_zram=0");
-		return false;
-	}
-	down_read(&main_zram->init_lock);
-	idle_flag = zram_test_flag(main_zram, index, ZRAM_IDLE);
-	up_read(&main_zram->init_lock);
-	return idle_flag;
-}
-
 static void zram_set_flag(struct zram *zram, u32 index,
 			enum zram_pageflags flag)
 {
@@ -158,6 +145,54 @@ static inline bool zram_allocated(struct zram *zram, u32 index)
 			zram_test_flag(zram, index, ZRAM_SAME) ||
 			zram_test_flag(zram, index, ZRAM_WB);
 }
+
+
+/* ycc check zram idle*/
+static bool zram_idle_check(unsigned index)
+{
+	bool idle_flag;
+	if (!main_zram)
+	{
+		printk("ycc main_zram=0");
+		return false;
+	}
+	down_read(&main_zram->init_lock);
+	zram_slot_lock(main_zram, index);
+	if (!zram_allocated(main_zram, index))
+	{
+		zram_slot_unlock(main_zram, index);
+		up_read(&main_zram->init_lock);
+		return false;
+	}
+	idle_flag = zram_test_flag(main_zram, index, ZRAM_IDLE);
+	zram_slot_unlock(main_zram, index);
+	up_read(&main_zram->init_lock);
+	return idle_flag;
+}
+/* ycc get access time */
+static unsigned get_zram_access_time(unsigned index)
+{
+	struct timespec64 ts;
+	if (!main_zram)
+	{
+		printk("ycc main_zram=0");
+		return 0;
+	}
+	down_read(&main_zram->init_lock);
+	zram_slot_lock(main_zram, index);
+	if (!zram_allocated(main_zram, index))
+	{
+		zram_slot_unlock(main_zram, index);
+		up_read(&main_zram->init_lock);
+		printk("ycc non zram page");
+		return 0;
+	}
+	ts = ktime_to_timespec64(main_zram->table[index].ac_time);
+	zram_slot_unlock(main_zram, index);
+	up_read(&main_zram->init_lock);
+	return (unsigned)ts.tv_sec;
+}
+
 
 #if PAGE_SIZE != 4096
 static inline bool is_partial_io(struct bio_vec *bvec)
@@ -1632,6 +1667,7 @@ static void zram_reset_device(struct zram *zram)
 	
 	/* ycc register zram idle */
 	register_zram_idle(&zram_idle_check);
+	register_zram_access(&get_zram_access_time);
 
 	set_capacity(zram->disk, 0);
 	part_stat_set_all(&zram->disk->part0, 0);
@@ -1904,6 +1940,7 @@ static int zram_add(void)
 	main_zram = zram;
 	/* ycc register zram idle */
 	register_zram_idle(&zram_idle_check);
+	register_zram_access(&get_zram_access_time);
 	return device_id;
 
 out_free_queue:
@@ -2042,6 +2079,7 @@ static int __init zram_init(void)
 
 	/* ycc register zram idle */
 	register_zram_idle(&zram_idle_check);
+	register_zram_access(&get_zram_access_time);
 
 	ret = class_register(&zram_control_class);
 	if (ret) {
