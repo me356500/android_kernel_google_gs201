@@ -299,6 +299,13 @@ int add_to_swap(struct page *page)
 	entry = get_swap_page(page);
 	if (!entry.val)
 		return 0;
+	
+	/* flash swap access time*/
+	if(swp_type(entry)){
+		unsigned long offset;
+		offset = swp_offset(entry);
+		update_flash_ac_time(offset);
+	}
 
 	// printk("ycc add_to_swap,pfn,%llu,pid,%d,uid,%d", page_pfn, page_pid, page_uid);
 	// ycc modify swp-out
@@ -517,18 +524,57 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		if (show_fault_distribution)
 			put_mm_fault_distribution(refault_activate_ratio);
 		/* get zram access time */
-		if (fault_zram_acc_time) {
-			if (si && !swp_type(entry) && page_uid >= 10200 && page_uid < 10250) {
+		if (fault_zram_acc_time && page_uid >= 10200 && page_uid < 10250) {
+			unsigned acc_time, lifetime, avg_lifetime;
+			bool long_lifetime = false;
+			if (si && !swp_type(entry)) {
 				unsigned long offset;
 				offset = swp_offset(entry);
 				if (si->swap_map[offset] && si->swap_map[offset] < SWAP_MAP_MAX) {
 					struct timespec64 ts;
-					unsigned acc_time, lifetime;
 					acc_time = call_zram_access_time(offset);
 					ts = ktime_to_timespec64(ktime_get_boottime());
 					lifetime = (unsigned)ts.tv_sec - acc_time;
-					put_zram_acc_time(page_uid, lifetime);
+					put_refault_duration(page_uid, lifetime);
 				}
+			} else if (si && swp_type(entry)) {
+				/* flash swap access time*/
+				unsigned long offset;
+				offset = swp_offset(entry);
+				if (si->swap_map[offset] && si->swap_map[offset] < SWAP_MAP_MAX) {
+					struct timespec64 ts;
+					acc_time = get_flash_ac_time(offset);
+					ts = ktime_to_timespec64(ktime_get_boottime());
+					lifetime = (unsigned)ts.tv_sec - acc_time;
+					// put to swap in lifetime
+					if (lifetime < (unsigned)10000 && acc_time)
+						put_refault_duration(page_uid, lifetime);
+					update_flash_ac_time(offset);
+				}
+			}
+
+			/* count long lifetime swap-in ratio*/
+			avg_lifetime = get_avg_refault_duration(page_uid);
+			if (avg_lifetime && acc_time) {
+				unsigned lifetime_th = avg_lifetime * 2;
+				lifetime_th = min((unsigned)900, lifetime_th);
+				lifetime_th = max((unsigned)600, lifetime_th);
+				atomic_long_inc(&all_lifetime_swap_in);
+				if (lifetime > lifetime_th) {
+					atomic_long_inc(&long_lifetime_swap_in);
+					long_lifetime = true;
+				}
+
+				if (lifetime < avg_lifetime) // 1 * avg lifetime
+					atomic_long_inc(&avg_lifetime_distribution[0]);
+				else if (lifetime < avg_lifetime * 3 / 2) //  1.5 * avg lifetime
+					atomic_long_inc(&avg_lifetime_distribution[1]);
+				else if (lifetime < avg_lifetime * 2) // 2 * avg lifetime
+					atomic_long_inc(&avg_lifetime_distribution[2]);
+				else if (lifetime < avg_lifetime * 5 / 2)
+					atomic_long_inc(&avg_lifetime_distribution[3]);
+
+				put_app_lifetime_swap_in(page_uid, long_lifetime);
 			}
 		}
 	}
