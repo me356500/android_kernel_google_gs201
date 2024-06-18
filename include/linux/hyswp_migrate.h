@@ -5,8 +5,8 @@
 // #define swap_alloc_enable
 // #define swap_alloc_swap_ra_enable
 /* hybrid swap */
-#define hyswp_enable true
-#define dispatch_enable true
+#define hyswp_enable false
+#define migrate_enable true
 #define anon_refault_active_th 10
 extern int hyswp_scan_sec;
 extern volatile int zram_usage;
@@ -22,7 +22,8 @@ extern bool call_zram_idle_check(unsigned index);
 extern void put_refault_duration(int uid, unsigned acc_time);
 extern unsigned call_zram_access_time(unsigned index);
 /* flash swap access time*/
-#define max_flash_swap_slot (8 * 1024 * 1024 / 4 + 100)
+#define swap_page_8GB (8 * 1024 * 1024 / 4)
+#define max_flash_swap_slot (12 * 1024 * 1024 / 4 + 100)
 // 8GB flash swap
 extern void update_flash_ac_time(unsigned long slot);
 extern unsigned get_flash_ac_time(unsigned long slot);
@@ -32,16 +33,21 @@ extern atomic_long_t long_lifetime_swap_in;
 extern atomic_long_t avg_lifetime_distribution[4]; // 1, 1.5, 2 * avg lifetime
 extern void put_app_lifetime_swap_in(int uid, bool long_lifetime);
 
+#ifdef swap_alloc_swap_ra_enable
+/* app-based swap readahead*/
+extern unsigned get_app_ra_window(int app_uid, int app_pid);
+#endif
 
 /* statistic */
-#define show_fault_distribution false
+#define show_fault_distribution true
 extern void put_mm_fault_distribution(unsigned value);
 /* anon page fault latency */
 extern unsigned long anon_fault, anon_fault_lat;
 /* app swap cache hit and ra */
-extern void put_swap_ra_count(int app_uid, int ra_hit_flag);
+extern void put_swap_ra_count(int app_uid, int app_pid, int ra_hit_flag, int swap_type);
 /* swap on zram or flash */
 extern unsigned long zram_in, flash_in;
+extern void put_app_swap_in_pattern(int page_uid, unsigned si_type);
 /* swap slot hole effect */
 extern unsigned long virt_prefetch, actual_prefetch;
 extern unsigned long swap_ra_io, swap_ra_cnt;
@@ -51,5 +57,7 @@ extern unsigned long total_ra_size_cnt[10], total_ra_cnt;
 #define max_ra_page 20
 extern unsigned long actual_ra_page[max_ra_page];
 extern unsigned long ra_io_cnt[max_ra_page];
+/* system anon workingset_activate */
+extern atomic_long_t anon_refault_page, anon_wa_refault;
 
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

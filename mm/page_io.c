@@ -331,6 +331,9 @@ int swap_readpage(struct page *page, bool synchronous)
 	struct gendisk *disk;
 	unsigned long pflags;
 	unsigned si_type;
+	int page_uid, page_pid;
+	// ycc count app swap pattern
+	page_uid = page_pid = -1;
 
 	VM_BUG_ON_PAGE(!PageSwapCache(page) && !synchronous, page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);

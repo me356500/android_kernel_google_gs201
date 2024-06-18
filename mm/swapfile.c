@@ -1087,7 +1087,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	// ycc add to hash
 pid_to_hash:
 	offset = scan_base = READ_ONCE(si->highest_bit) - 1;
-	if (swap_alloc_free_offset >= 12 * 1024 * 1024 / 4)
+	if (swap_alloc_free_offset >= swap_page_8GB)
 		swap_alloc_free_offset = 1;
 	if (page_pid != -1) {
 		spin_lock(&swap_alloc_lock);
@@ -1102,6 +1102,8 @@ pid_to_hash:
 			swap_alloc_free_offset += 256;
 			used_page = pid_swap_map->used_page; //debug
 			start_offset = offset;
+			if (swap_alloc_free_offset % (1024 * 1024 / 4) <= 255)
+				printk("ycc swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid NULL %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else if (pid_swap_map->used_page >= 256) {
 			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
@@ -1109,6 +1111,8 @@ pid_to_hash:
 			swap_alloc_free_offset += 256;
 			used_page = pid_swap_map->used_page; //debug
 			start_offset = offset;
+			if (swap_alloc_free_offset % (1024 * 1024 / 4) <= 255)
+				printk("ycc swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid find %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else {
 			offset = pid_swap_map->offest + pid_swap_map->used_page;

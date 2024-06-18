@@ -17,6 +17,7 @@
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/rmap.h> // ycc add
+#include <linux/hyswp_migrate.h> // ycc add
 
 /*
  *		Double CLOCK lists
@@ -487,6 +488,11 @@ int workingset_refault(struct page *page, void *shadow, unsigned skip_cnt) // yc
 	if (!file) {
 		if (refault_distance > workingset_size)
 			anon_refault = 0;
+		else if(!skip_cnt) /* system anon workingset_activate */
+			atomic_long_inc(&anon_wa_refault);
+		
+		if(!skip_cnt) /* system anon workingset_activate */
+			atomic_long_inc(&anon_refault_page);
 	}
 
 	if (refault_distance > workingset_size)
