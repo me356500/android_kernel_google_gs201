@@ -5,11 +5,11 @@
 // #define swap_alloc_enable
 // #define swap_alloc_swap_ra_enable
 /* hybrid swap */
-#define hyswp_enable false
-#define migrate_enable true
 #define anon_refault_active_th 10
 extern int hyswp_scan_sec;
 extern volatile int zram_usage;
+
+extern bool get_hyswp_enable_flag(void);
 
 /* zram idle */
 #define max_zram_idle_index (3 * 1024 * 1024 / 4 + 100)
@@ -43,6 +43,8 @@ extern unsigned get_app_ra_window(int app_uid, int app_pid);
 extern void put_mm_fault_distribution(unsigned value);
 /* anon page fault latency */
 extern unsigned long anon_fault, anon_fault_lat;
+extern unsigned long anon_flash_lat, anon_flash_lat_cnt;
+extern unsigned long anon_zram_lat, anon_zram_lat_cnt;
 /* app swap cache hit and ra */
 extern void put_swap_ra_count(int app_uid, int app_pid, int ra_hit_flag, int swap_type);
 /* swap on zram or flash */

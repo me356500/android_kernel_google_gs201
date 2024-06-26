@@ -3593,6 +3593,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	unsigned long refault;
 	// unsigned long large_vma_size = (1UL) << PMD_SHIFT;
 	// fault in speed
+	int swap_dev_flag = -1;
 	u64 start_time = ktime_get_ns() / 1000; // 10^-6 sec
 
 	refault = -1;
@@ -3638,7 +3639,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 	if (!page) {
 		struct swap_info_struct *si = swp_swap_info(entry);
-
+		swap_dev_flag = swp_type(entry);
 		if (data_race(si->flags & SWP_SYNCHRONOUS_IO) &&
 		    __swap_count(entry) == 1) {
 			/* skip swapcache */
@@ -3858,6 +3859,13 @@ out_release:
 	/* anon fault in speed */
 	anon_fault++;
 	anon_fault_lat = anon_fault_lat - start_time + ktime_get_ns() / 1000; // 10^-6 sec
+	if (swap_dev_flag == 0) {
+		anon_zram_lat = anon_zram_lat - start_time + ktime_get_ns() / 1000;
+		anon_zram_lat_cnt++;
+	} else if (swap_dev_flag == 1) {
+		anon_flash_lat = anon_flash_lat - start_time + ktime_get_ns() / 1000;
+		anon_flash_lat_cnt++;
+	}
 	return ret;
 }
 

@@ -43,6 +43,7 @@ static unsigned int nr_swapper_spaces[MAX_SWAPFILES] __read_mostly;
 static bool enable_vma_readahead __read_mostly = true;
 
 static bool swap_ra_break_flag = false; // ycc add
+extern bool hyswp_enable;
 
 #define SWAP_RA_WIN_SHIFT (PAGE_SHIFT / 2)
 #define SWAP_RA_HITS_MASK ((1UL << SWAP_RA_WIN_SHIFT) - 1)
@@ -103,7 +104,7 @@ unsigned long check_hybird_swap(void)
 {
 	unsigned long swp_dev_cnt = 0, i;
 
-	if (!hyswp_enable)
+	if (!get_hyswp_enable_flag())
 		return 0;
 
 	for (i = 0; i < MAX_SWAPFILES; i++) {
