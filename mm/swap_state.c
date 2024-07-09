@@ -308,14 +308,16 @@ int add_to_swap(struct page *page)
 		update_flash_ac_time(offset);
 	}
 
-	// printk("ycc add_to_swap,pfn,%llu,pid,%d,uid,%d", page_pfn, page_pid, page_uid);
-	// ycc modify swp-out
-	// if (page_uid >= 10220 && page_uid <= 10241 && page_uid==10241)
+	/* section 3.d: process mix swap out */
+	// if(page_pid!=-1)
+	// 	printk("ycc app_page_mix_swap-out,pid,%d,uid,%d", page_pid, page_uid);
+	// swap out log
+	/* section 3.d: evict correlation */
+	// swap-out event for evict correlation
+	// if (page_uid >= 10220 && page_uid <= 10241 && page_uid==10236) // set the app uid that we want to test (must match to swap-in part)
 	// 	if (vma) {
-	// 		unsigned long vma_size = (vma->vm_end - vma->vm_start) / 4096;
-	// 		if(vma_size>=512)
-	// 			printk("ycc swp-out uid>pid>vma>vma_size>swp_offset>pfn,%d,%d,%llu,%llu,%llu,%llu",
-	// 				page_uid, page_pid, (unsigned long)vma, vma_size, swp_offset(entry), page_pfn);
+	// 		printk("ycc swp-out_log uid>pid>vma>swp_dev>swp_offset>pfn,%d,%d,%llu,%llu,%llu,%llu",
+	// 			page_uid, page_pid, (unsigned long)vma, swp_type(entry), swp_offset(entry), page_pfn);
 	// 	}
 
 	/*
@@ -493,29 +495,19 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 	// ycc modify
 	if (dev_flag) {
 		unsigned si_type = swp_type(entry);
-		// unsigned long large_vma_size = (1UL) << PMD_SHIFT;
 		/* swap in log */
-		// if (page)
-		// 	printk("ycc,swp_offset,%llu,swp_type,%llu,pfn,%llu,RA_hit-1,pid,%d,uid,%d,pgd,%llu",
-		// 	       swp_offset(entry), swp_type(entry), PFN_DOWN(addr), page_pid,
-		// 	       page_uid, page_pgd);
-		// else
-		// 	printk("ycc,swp_offset,%llu,swp_type,%llu,pfn,%llu,RA_hit-0,pid,%d,uid,%d,pgd,%llu",
-		// 	       swp_offset(entry), swp_type(entry), PFN_DOWN(addr), page_pid,
-		// 	       page_uid, page_pgd);
-		// ycc modify swp-in
-		// if (page_uid >= 10220 && page_uid <= 10241 && page_uid==10241)
+		/* section 3.d: evict correlation */
+		// swap-in event for evict correlation
+		// if (page_uid >= 10220 && page_uid <= 10241 && page_uid==10236) // set the app uid that we want to test (must match to swap-out part)
 		// 	if (vma) {
-		// 		unsigned long vma_size = (vma->vm_end - vma->vm_start) / 4096;
-		// 		if(vma_size>=512)
-		// 		printk("ycc swp-in small-vma uid>pid>vma>vma_size>swp_offset>pfn,%d,%d,%llu,%llu,%llu,%llu",
-		// 			page_uid, page_pid, (unsigned long)vma, vma_size,
+		// 		printk("ycc swp-in_log uid>pid>vma>swp_dev>swp_offset>pfn,%d,%d,%llu,%llu,%llu,%llu",
+		// 			page_uid, page_pid, (unsigned long)vma, swp_type(entry),
 		// 			swp_offset(entry), PFN_DOWN(addr));
 		// 	}
 
-		/* page fault in zram or swap */
+		/* page fault in zram or swap */ 
 		// if(swp_offset(entry))
-		// 	count_vm_event(SWPIN_FLASH);
+		// 	count_vm_event(SWPIN_FLASH); // need to flash ROM to mobile upon adding parameters to /proc/vmstat
 		// else
 		// 	count_vm_event(SWPIN_ZRAM);
 
@@ -561,22 +553,24 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			avg_lifetime = get_avg_refault_duration(page_uid);
 			if (avg_lifetime && acc_time) {
 				unsigned lifetime_th = avg_lifetime * 2;
-				lifetime_th = min((unsigned)900, lifetime_th);
-				lifetime_th = max((unsigned)600, lifetime_th);
+				lifetime_th = min((unsigned)1500, lifetime_th);
+				lifetime_th = max((unsigned)300, lifetime_th);
 				atomic_long_inc(&all_lifetime_swap_in);
 				if (lifetime > lifetime_th) {
 					atomic_long_inc(&long_lifetime_swap_in);
 					long_lifetime = true;
 				}
-
-				if (lifetime < avg_lifetime) // 1 * avg lifetime
-					atomic_long_inc(&avg_lifetime_distribution[0]);
-				else if (lifetime < avg_lifetime * 3 / 2) //  1.5 * avg lifetime
-					atomic_long_inc(&avg_lifetime_distribution[1]);
-				else if (lifetime < avg_lifetime * 2) // 2 * avg lifetime
-					atomic_long_inc(&avg_lifetime_distribution[2]);
-				else if (lifetime < avg_lifetime * 5 / 2)
-					atomic_long_inc(&avg_lifetime_distribution[3]);
+				
+				/* section 3.c: Page Migration */
+				/* Dormant pages threshold: large proportion of swap in < 2 * app refault duration (only enable zRAM Page Admission) */
+				if (lifetime < avg_lifetime) // < 1 * avg lifetime
+					atomic_long_inc(&swap_in_refault_duration[0]);
+				else if (lifetime < avg_lifetime * 2) // 1 ~ 2 * avg lifetime
+					atomic_long_inc(&swap_in_refault_duration[1]);
+				else if (lifetime >= avg_lifetime * 2) // > 2 * avg lifetime
+					atomic_long_inc(&swap_in_refault_duration[2]);
+				else // xx: empty
+					atomic_long_inc(&swap_in_refault_duration[3]);
 
 				put_app_lifetime_swap_in(page_uid, long_lifetime);
 			}

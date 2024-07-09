@@ -1087,7 +1087,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	// ycc add to hash
 pid_to_hash:
 	offset = scan_base = READ_ONCE(si->highest_bit) - 1;
-	if (swap_alloc_free_offset >= swap_page_8GB)
+	if (swap_alloc_free_offset >= swap_page_8GB - 256)
 		swap_alloc_free_offset = 1;
 	if (page_pid != -1) {
 		spin_lock(&swap_alloc_lock);

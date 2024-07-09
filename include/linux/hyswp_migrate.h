@@ -5,14 +5,16 @@
 // #define swap_alloc_enable
 // #define swap_alloc_swap_ra_enable
 /* hybrid swap */
-#define anon_refault_active_th 10
+// #define cold_app_threshold 10
 extern int hyswp_scan_sec;
 extern volatile int zram_usage;
 
 extern bool get_hyswp_enable_flag(void);
 
+extern bool cold_app_identification(unsigned WA_ratio, unsigned long anon_size, unsigned long swap_size);
+
 /* zram idle */
-#define max_zram_idle_index (3 * 1024 * 1024 / 4 + 100)
+// #define max_zram_idle_index (3 * 1024 * 1024 / 4 + 100)
 extern unsigned char *pre_zram_idle, *this_round_page_idle;
 extern void register_zram_idle(bool (*zram_idle_check)(unsigned));
 extern bool call_zram_idle_check(unsigned index);
@@ -30,7 +32,7 @@ extern unsigned get_flash_ac_time(unsigned long slot);
 extern unsigned get_avg_refault_duration(int uid);
 extern atomic_long_t all_lifetime_swap_in;
 extern atomic_long_t long_lifetime_swap_in;
-extern atomic_long_t avg_lifetime_distribution[4]; // 1, 1.5, 2 * avg lifetime
+extern atomic_long_t swap_in_refault_duration[4]; // number of swap-in with 4 entry: <1, 1~2, >2, (* avg refault duration) . The fouth entry is unused
 extern void put_app_lifetime_swap_in(int uid, bool long_lifetime);
 
 #ifdef swap_alloc_swap_ra_enable

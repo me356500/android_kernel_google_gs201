@@ -28,12 +28,30 @@ enum si_dev { zram_dev = 0, flash_dev };
 
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
+/* sensitivity study */
+static unsigned cold_app_threshold = 10;
+static unsigned dormant_page_threshold = 2;
+static unsigned dormant_page_th_devide = 1;
+/* hybrid swap setting: module parameter */
 module_param_named(hyswp_enable, hyswp_enable, bool, 0644);
 module_param_named(hyswp_migrate_enable, hyswp_migrate_enable, bool, 0644);
+/* sensitivity study */
+module_param_named(cold_app_threshold, cold_app_threshold, uint, 0644);
+module_param_named(dormant_page_threshold, dormant_page_threshold, uint, 0644);
+module_param_named(dormant_page_th_devide, dormant_page_th_devide, uint, 0644);
 
 bool get_hyswp_enable_flag(void)
 {
 	return hyswp_enable;
+}
+
+bool cold_app_identification(unsigned WA_ratio, unsigned long anon_size, unsigned long swap_size)
+{
+	if (WA_ratio > 100 || cold_app_threshold > 100)
+		return false;
+	if (WA_ratio <= cold_app_threshold && anon_size + swap_size > 5000)
+		return true;
+	return false;
 }
 
 #define total_app_slot 50
@@ -54,14 +72,14 @@ static bool (*zram_idle_check_ptr)(unsigned) = NULL;
 // static unsigned idle_scan_mm_value = 20, pre_idle_scan_mm_value = 10;
 // static unsigned zram_idle_stat = zram_idle_NOOP;
 static unsigned zram_idle_migration_cnt = 0; // Page Migration: number of page are migrated each round
-static bool zram_idle_migration_flag = false;
+static bool zram_idle_migration_flag = false; // To identify whether Page Migrator is migrating cold apps or dormant pages
 /* get zram access time */
 static unsigned (*get_zram_access_time_ptr)(unsigned) = NULL;
 /* flash swap access time*/
 static DEFINE_SPINLOCK(swpin_ac_lock);
 unsigned *flash_swap_ac_time = NULL;
 atomic_long_t all_lifetime_swap_in, long_lifetime_swap_in;
-atomic_long_t avg_lifetime_distribution[4]; // 1, 1.5, 2 * avg lifetime 
+atomic_long_t swap_in_refault_duration[4]; // <1, 1~2, >2 * avg lifetime 
 
 #define number_time_slot 20
 #define time_slot 100
@@ -504,9 +522,9 @@ static void reset_zram_lifetime()
 		spin_unlock(&swpin_ac_lock);
 		atomic_long_set(&all_lifetime_swap_in, 0);
 		atomic_long_set(&long_lifetime_swap_in, 0);
-
-		for (i = 0; i < 4; i++)
-			atomic_long_set(&avg_lifetime_distribution[i], 0);
+		if (scan_round == 30)
+			for (i = 0; i < 4; i++)
+				atomic_long_set(&swap_in_refault_duration[i], 0);
 	}
 }
 
@@ -544,11 +562,11 @@ static void show_mm_distribution()
 	char msg[1024] = { 0 };
 	int i;
 	spin_lock(&distribution_lock);
-	sprintf(msg, "mm_value");
+	sprintf(msg, "WA_value");
 	for (i = 0; i < distribution; i++)
 		sprintf(msg, "%s, %d", msg, mm_distribution[i]);
 	spin_unlock(&distribution_lock);
-	printk("ycc_each_mm fault,scan_round,%d, %s", scan_round, msg);
+	printk("ycc hyswp_info swap-in,scan_round,%d, %s", scan_round, msg);
 }
 
 /* statistic zram, flash page in each mm */
@@ -574,15 +592,15 @@ static void show_swap_page_distribution()
 {
 	char msg[1024] = { 0 };
 	int i;
-	sprintf(msg, "mm_value");
+	sprintf(msg, "WA_value");
 	for (i = 0; i < distribution; i++)
 		sprintf(msg, "%s, %u", msg, zram_distribution[i]);
-	printk("ycc hyswp_psuedo zram,scan_round,%d, %s", scan_round, msg);
+	printk("ycc hyswp_info zram,scan_round,%d, %s", scan_round, msg);
 
-	sprintf(msg, "mm_value");
+	sprintf(msg, "WA_value");
 	for (i = 0; i < distribution; i++)
 		sprintf(msg, "%s, %u", msg, flash_distribution[i]);
-	printk("ycc hyswp_psuedo flash,scan_round,%d, %s", scan_round, msg);
+	printk("ycc hyswp_info flash,scan_round,%d, %s", scan_round, msg);
 }
 
 /* zRAM Page Migration */
@@ -627,8 +645,8 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 					lifetime = (unsigned)ts.tv_sec - acc_time;
 					put_zram_acc_time(mm_uid, lifetime);
 				}
-			} else if (si_for_count && swp_type(entry) == 1 && mm_uid >= 10224 &&
-				   mm_uid <= 10238) {
+			} else if (si_for_count && swp_type(entry) == 1 && mm_uid >= 10220 &&
+				   mm_uid <= 10250) {
 				offset = swp_offset(entry);
 				if (si_for_count->swap_map[offset] &&
 				    si_for_count->swap_map[offset] < SWAP_MAP_MAX) {
@@ -651,8 +669,8 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 			struct timespec64 ts;
 			unsigned acc_time = 0, lifetime = 0, lifetime_th = 0, avg_lifetime = 0;
 
-			if (offset >= max_zram_idle_index - 200)
-				continue;
+			// if (offset >= max_zram_idle_index - 200)
+			// 	continue;
 			// spin_lock(&zram_idle_lock);
 			// if (!call_zram_idle_check(offset)) {
 			// 	spin_unlock(&zram_idle_lock);
@@ -669,8 +687,9 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 				}
 				/* count long lifetime swap-in ratio*/
 				avg_lifetime = get_avg_refault_duration(mm_uid);
-				lifetime_th = avg_lifetime * 2;
-				lifetime_th = min((unsigned)900, lifetime_th);
+				lifetime_th = avg_lifetime * dormant_page_threshold /
+					      dormant_page_th_devide;
+				lifetime_th = min((unsigned)2500, lifetime_th);
 				lifetime_th = max((unsigned)300, lifetime_th);
 				// lifetime_th = 600;
 				if (lifetime < lifetime_th)
@@ -830,7 +849,7 @@ static void start_zram_migrate() // evicts cold app
 	struct mm_struct *mm;
 	struct mm_struct *prev_mm;
 	struct list_head *p;
-	unsigned long refault_ratio = 200;
+	unsigned long anon_WA_ratio = 200;
 	unsigned mm_cnt = 0, mm_demote_cnt = 0;
 	// unsigned mm_promote_cnt = 0;
 	unsigned mm_demote_1 = 0, mm_demote_2 = 0, mm_demote_3 = 0;
@@ -848,7 +867,7 @@ static void start_zram_migrate() // evicts cold app
 	reset_zram_acc_time();
 	while ((p = p->next) != &init_mm.mmlist) {
 		mm_uid = -1;
-		refault_ratio = 200;
+		anon_WA_ratio = 200;
 		mm = list_entry(p, struct mm_struct, mmlist);
 		if (!mmget_not_zero(mm))
 			continue;
@@ -859,10 +878,10 @@ static void start_zram_migrate() // evicts cold app
 		swap_size = get_mm_counter(mm, MM_SWAPENTS);
 
 		if (mm->nr_anon_fault)
-			refault_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
+			anon_WA_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
 		mm_cnt++;
 		avg_anon_fault += mm->nr_anon_fault;
-		if (refault_ratio <= anon_refault_active_th && anon_size + swap_size > 5000) {
+		if (cold_app_identification(anon_WA_ratio, anon_size, swap_size)) {
 			mm_demote_cnt++;
 			mm_demote_1++;
 			scan_vma(mm, zram_dev);
@@ -870,7 +889,7 @@ static void start_zram_migrate() // evicts cold app
 			mm_demote_cnt++;
 			mm_demote_2++;
 			// scan_vma(mm, zram_dev);
-		} else if ((refault_ratio <= 15 && anon_size + swap_size > 70000)) {
+		} else if ((anon_WA_ratio <= 15 && anon_size + swap_size > 70000)) {
 			mm_demote_cnt++;
 			mm_demote_3++;
 			// scan_vma(mm, zram_dev);
@@ -879,7 +898,7 @@ static void start_zram_migrate() // evicts cold app
 		/* per-app workingset_activate */
 		if (mm->owner && mm->owner->cred)
 			mm_uid = mm->owner->cred->uid.val;
-		put_app_workingset_activate(mm_uid, refault_ratio);
+		put_app_workingset_activate(mm_uid, anon_WA_ratio);
 
 		pseudo_scan_vma(mm);
 		cond_resched();
@@ -900,7 +919,7 @@ static void start_zram_idle_migrate() // evicts dormant page
 	struct mm_struct *mm;
 	struct mm_struct *prev_mm;
 	struct list_head *p;
-	unsigned long refault_ratio = 200;
+	unsigned long anon_WA_ratio = 200;
 	unsigned mm_cnt = 0, mm_demote_cnt = 0;
 	unsigned long anon_size = 0, swap_size = 0;
 
@@ -933,7 +952,7 @@ static void start_zram_idle_migrate() // evicts dormant page
 		swap_size = get_mm_counter(mm, MM_SWAPENTS);
 
 		if (mm->nr_anon_fault)
-			refault_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
+			anon_WA_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
 		mm_cnt++;
 
 		/* get zram access time */
@@ -972,7 +991,7 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 	struct mm_struct *mm;
 	struct mm_struct *prev_mm;
 	struct list_head *p;
-	unsigned long refault_ratio = 200;
+	unsigned long anon_WA_ratio = 200;
 	unsigned mm_cnt = 0;
 	// unsigned mm_promote_cnt = 0;
 	unsigned long avg_anon_fault = 0;
@@ -990,7 +1009,7 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 	reset_zram_acc_time();
 	while ((p = p->next) != &init_mm.mmlist) {
 		mm_uid = -1;
-		refault_ratio = 200;
+		anon_WA_ratio = 200;
 		mm = list_entry(p, struct mm_struct, mmlist);
 		if (!mmget_not_zero(mm))
 			continue;
@@ -999,8 +1018,8 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 		prev_mm = mm;
 
 		if (mm->nr_anon_fault)
-			refault_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
-		refault_value_global = refault_ratio;
+			anon_WA_ratio = mm->nr_anon_refault * 100 / mm->nr_anon_fault;
+		refault_value_global = anon_WA_ratio;
 
 		mm_cnt++;
 		avg_anon_fault += mm->nr_anon_fault;
@@ -1009,7 +1028,7 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 		if (mm->owner && mm->owner->cred)
 			mm_uid = mm->owner->cred->uid.val;
 		/* per-app workingset_activate */
-		put_app_workingset_activate(mm_uid, refault_ratio);
+		put_app_workingset_activate(mm_uid, anon_WA_ratio);
 
 		scan_vma(mm, 5); // si_type is invalid
 		cond_resched();
@@ -1215,7 +1234,6 @@ void print_swap_lifetime_log(void)
 	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
 
 	/* number of dormant/active pages in zRAM for each app (only enable zRAM Page Admission) */
-	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
 	for (j = 0; j < 20; j++) {
 		if (j + 10220 >= 10224 && j + 10220 <= 10238) {
 			sprintf(msg, "per_app_swap_distribution app_uid , %d,", j + 10220);
@@ -1237,18 +1255,19 @@ void print_swap_lifetime_log(void)
 	/* section 3-c */
 	local_all_lifetime_swp_in = atomic_long_read(&all_lifetime_swap_in);
 	/* Dormant pages threshold: many page in zRAM > 2 * app refault duration (only enable zRAM Page Admission) */
-	sprintf(msg, "zram_refault_distribution");
+	sprintf(msg, "zram_page_refault_duration");
 	for (i = 0; i < page_zram_slot; i++) {
 		if (app_zram_distribution[i]) // number of zram page with 4 entry: <1, 1~2, 2~3 , >3 app refault duration
 			sprintf(msg, "%s, %llu", msg, app_zram_distribution[i]);
 		else
 			sprintf(msg, "%s, -1", msg);
 	}
+	printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
 	spin_unlock(&swpin_ac_lock);
 	/* Dormant pages threshold: large proportion of swap in < 2 * app refault duration (only enable zRAM Page Admission) */
-	sprintf(msg, "lifetime_distribution");
+	sprintf(msg, "swap_in_refault_duration");
 	for (i = 0; i < 4; i++)
-		sprintf(msg, "%s, %llu", msg, atomic_long_read(&avg_lifetime_distribution[i])); // number of swap-in with 4 entry: <1, 1~1.5, 1.5~2, >2 refault duration
+		sprintf(msg, "%s, %llu", msg, atomic_long_read(&swap_in_refault_duration[i])); // number of swap-in with 4 entry: <1, 1~2, >2, (* refault duration). The fouth entry is unused
 	printk("ycc hyswp_info scan_round(%d), %s, all, %lld", scan_round, msg,
 	       local_all_lifetime_swp_in);
 	//unused
@@ -1381,7 +1400,7 @@ static int hyswp_migrate(void *p)
 	atomic_long_set(&flash_ra_page, 0);
 
 	for (i = 0; i < 4; i++)
-		atomic_long_set(&avg_lifetime_distribution[i], 0);
+		atomic_long_set(&swap_in_refault_duration[i], 0);
 
 	for (i = 0; i < total_app_slot; i++) {
 		atomic_long_set(&app_ra_page[i], 1);
@@ -1447,8 +1466,8 @@ static int hyswp_migrate(void *p)
 		       avail_page_cnt, hyswp_enable, hyswp_migrate_enable);
 		scan_round++;
 
-		free_page_cnt /= 2;
-		free_page_cnt = min((unsigned int)5000, free_page_cnt);
+		free_page_cnt /= 3;
+		free_page_cnt = min((unsigned int)10000, free_page_cnt);
 		// zram_idle_update();
 		reset_zram_lifetime();
 		reset_app_workingset_activate();
@@ -1458,12 +1477,12 @@ static int hyswp_migrate(void *p)
 			if (local_zram_usage >= zran_usage_th && local_zram_usage <= 100) {
 				zram_idle_migration_flag = false;
 				start_zram_migrate(); // evicts cold app
-				// if (zram_idle_stat == zram_idle_migration || 1) // ycc test
 				start_zram_idle_migrate(); // evicts dormant page
 			}
 		} else if (swap_page_distribution) {
 			scan_mm_swap_page_count(); // only for statistic, not do any migration
 		}
+		scan_mm_swap_page_count(); // only for statistic, not do any migration
 		// if (zram_idle_stat == zram_idle_wait) {
 		// 	if (mark_idle_round + wait_stat_round <= scan_round)
 		// 		zram_idle_stat = zram_idle_migration;

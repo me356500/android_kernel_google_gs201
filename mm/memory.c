@@ -3844,6 +3844,13 @@ out:
 	/* anon fault in speed */
 	anon_fault++;
 	anon_fault_lat = anon_fault_lat - start_time + ktime_get_ns() / 1000; // 10^-6 sec
+	if (swap_dev_flag == 0) {
+		anon_zram_lat = anon_zram_lat - start_time + ktime_get_ns() / 1000;
+		anon_zram_lat_cnt++;
+	} else if (swap_dev_flag == 1) {
+		anon_flash_lat = anon_flash_lat - start_time + ktime_get_ns() / 1000;
+		anon_flash_lat_cnt++;
+	}
 	return ret;
 out_nomap:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
