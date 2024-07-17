@@ -506,6 +506,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		// 	}
 
 		/* page fault in zram or swap */ 
+		// need to flash all ROM when adding a parameter to vmstat
 		// if(swp_offset(entry))
 		// 	count_vm_event(SWPIN_FLASH); // need to flash ROM to mobile upon adding parameters to /proc/vmstat
 		// else
@@ -743,7 +744,6 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct v
 		if (vma && vma->vm_mm) {
 			if (refault)
 				vma->vm_mm->nr_anon_refault++;
-			// printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			vma->vm_mm->nr_anon_fault++;
 		}
 	}
@@ -887,19 +887,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 #ifdef swap_alloc_swap_ra_enable
 	// mask = 0;
 	mask = get_app_ra_window(page_uid, page_pid) - 1;
-	// if (page_uid >= 10220 && page_uid <= 10250) {
-	// 	mask = get_app_ra_window(page_uid, page_pid) - 1;
-		// mask = 8 - 1; // fix_ra
-		// if (page_uid <= 10229) {
-		// 	mask = 4 - 1;
-		// }
-		// if(page_uid <= 10226){
-		// 	mask = 2 - 1;
-		// }
-		// if(page_uid >= 10231 && page_uid <= 10234){
-		// 	mask = 16 - 1;
-		// }
-	// }
+
 	
 #endif
 	skipra = 0;
@@ -922,6 +910,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	}
 	if (ra_flag >= 0 && ra_flag < 10)
 		total_ra_size_cnt[ra_flag]++;
+
+	if (!mask) {
+		actual_ra_page[1]++;
+		no_prefetch_cnt++;
+	}
 
 	if (!mask)
 		goto skip;
@@ -967,8 +960,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
 			}
-			actual_prefetch++;
-			actual_ra_read++;
+			if (swp_type(entry) != 0) {
+				actual_prefetch++;
+				actual_ra_read++;
+			}
 			if (swap_ra_break_flag)	{
 				swap_ra_break_flag = false;
 				swap_ra_io++;
@@ -981,13 +976,20 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	blk_finish_plug(&plug);
 	
 	/* swap_ra statistic */
-	if (actual_ra_read < max_ra_page)
-		actual_ra_page[actual_ra_read]++;
+	if (actual_ra_read < max_ra_page) {
+		if(actual_ra_read > 2)
+			prefetch_cnt++;
+		else
+			no_prefetch_cnt++;
+		if (actual_ra_read)
+			actual_ra_page[actual_ra_read]++;
+		else
+			actual_ra_page[1]++;
+	}
 	if (io_count < max_ra_page)
 		ra_io_cnt[io_count]++;
 	if (actual_ra_read)
 		swap_ra_cnt++;
-	// printk("ycc prefetch cluster,%llu,%lu,%lu,%lu,%llu",mask+1,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain(); /* Push any new pages onto the LRU now */
 skip:
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll, skip_cnt);
@@ -1073,11 +1075,6 @@ static void swap_ra_info(struct vm_fault *vmf,
 	ra_info->win = win = __swapin_nr_pages(pfn, fpfn, hits, max_win, prev_win);
 	// ycc modify
 	page_uid = -1;
-	// if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
-	// 	page_uid = vma->vm_mm->owner->cred->uid.val;
-	// ra_info->win = win = 1;
-	// if (page_uid >= 10000 && page_uid <= 20000)
-	// 	ra_info->win = win = 8; // fix_ra
 
 	atomic_long_set(&vma->swap_readahead_info, SWAP_RA_VAL(faddr, win, 0));
 
@@ -1180,7 +1177,6 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		put_page(page);
 	}
 	blk_finish_plug(&plug);
-	// printk("ycc prefetch vma,%llu,%lu,%lu,%lu,%llu",ra_info.win,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain();
 skip:
 	return read_swap_cache_async(fentry, gfp_mask, vma, vmf->address, ra_info.win == 1,

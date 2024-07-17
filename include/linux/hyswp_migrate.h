@@ -61,6 +61,7 @@ extern unsigned long total_ra_size_cnt[10], total_ra_cnt;
 #define max_ra_page 20
 extern unsigned long actual_ra_page[max_ra_page];
 extern unsigned long ra_io_cnt[max_ra_page];
+extern unsigned long no_prefetch_cnt, prefetch_cnt;
 /* system anon workingset_activate */
 extern atomic_long_t anon_refault_page, anon_wa_refault;
 
