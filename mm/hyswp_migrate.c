@@ -61,20 +61,12 @@ struct sysinfo mem_i;
 unsigned free_page_cnt = 0, avail_page_cnt = 0;
 
 /* zram idle */
-// static DEFINE_SPINLOCK(zram_idle_lock);
 unsigned this_idle_cnt = 0, pre_idle_cnt = 0;
-// unsigned char *pre_zram_idle = NULL;
-// unsigned char *this_round_page_idle = NULL;
 static bool (*zram_idle_check_ptr)(unsigned) = NULL;
-// enum zram_idle_stat_enum { zram_idle_NOOP = 0, zram_idle_wait, zram_idle_migration };
-// #define wait_stat_round 10 * 2
-// static unsigned mark_idle_round = 0;
-// static unsigned idle_scan_mm_value = 20, pre_idle_scan_mm_value = 10;
-// static unsigned zram_idle_stat = zram_idle_NOOP;
-static unsigned zram_idle_migration_cnt =
-	0; // Page Migration: number of page are migrated each round
-static bool zram_idle_migration_flag =
-	false; // To identify whether Page Migrator is migrating cold apps or dormant pages
+// Page Migration: number of page are migrated each round
+static unsigned zram_idle_migration_cnt = 0;
+// To identify whether Page Migrator is migrating cold apps or dormant pages
+static bool zram_idle_migration_flag = false;
 /* get zram access time */
 static unsigned (*get_zram_access_time_ptr)(unsigned) = NULL;
 /* flash swap access time*/
@@ -729,7 +721,7 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 		// 	page_promote_cnt++;
 		// 	count_vm_event(PG_PROMOTE);
 		// }
-		if (!zram_idle_migration_flag) { // mark: tmp to count demote, promote
+		if (!zram_idle_migration_flag) { // mark: count number of demoted pages
 			page_demote_cnt++;
 			count_vm_event(BALLOON_DEFLATE);
 		} else {
@@ -920,13 +912,6 @@ static void start_zram_idle_migrate() // evicts dormant page
 	unsigned mm_cnt = 0, mm_demote_cnt = 0;
 	unsigned long anon_size = 0, swap_size = 0;
 
-	// zram_idle_stat = zram_idle_migration;
-	// if (zram_idle_stat != zram_idle_migration) {
-	// 	printk("ycc hyswp_migrate: skip zram_idle_migration zram_idle_stat(%u)",
-	// 	       zram_idle_stat);
-	// 	return;
-	// }
-
 	zram_idle_migration_flag = true;
 	zram_idle_migration_cnt = 0;
 
@@ -965,24 +950,13 @@ static void start_zram_idle_migrate() // evicts dormant page
 	spin_unlock(&mmlist_lock);
 	mmput(prev_mm);
 
-	// if (zram_idle_migration_cnt < free_page_cnt) {
-	// 	pre_idle_scan_mm_value = idle_scan_mm_value;
-	// 	idle_scan_mm_value += 10;
-	// 	if (idle_scan_mm_value > 95)
-	// 		zram_idle_stat = zram_idle_NOOP;
-	// 	idle_scan_mm_value = min((unsigned)90, idle_scan_mm_value);
-	// }
-
 	zram_idle_migration_flag = false;
 
-	// printk("ycc hyswp_migrate: scan_mm(%d), zram_idle_demote_mm(%d), mm_th(%d/%d), zram_idle_page_demote(%d)",
-	//        mm_cnt, mm_demote_cnt, pre_idle_scan_mm_value, idle_scan_mm_value,
-	//        zram_idle_migration_cnt);
 	printk("ycc hyswp_migrate: scan_mm(%d), zram_idle_demote_mm(%d), zram_idle_page_demote(%d)",
 	       mm_cnt, mm_demote_cnt, zram_idle_migration_cnt);
 }
 
-static void scan_mm_swap_page_count() // count zram, flash page in each mm
+static void scan_mm_swap_page_count() // not do any migration, count zram and flash page in each mm
 {
 	/* statistic zram, flash page in each mm */
 	struct mm_struct *mm;
@@ -1028,7 +1002,7 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 		/* per-app workingset_activate */
 		put_app_workingset_activate(mm_uid, anon_WA_ratio);
 
-		scan_vma(mm, 5); // si_type is invalid
+		scan_vma(mm, 5); // si_type is invalid -> not do any migration
 		cond_resched();
 		spin_lock(&mmlist_lock);
 	}
@@ -1174,8 +1148,8 @@ void print_swap_lifetime_log(void)
 	/* Dormant pages threshold: many page in zRAM > 2 * app refault duration (only enable zRAM Page Admission) */
 	sprintf(msg, "zram_page_refault_duration");
 	for (i = 0; i < page_zram_slot; i++) {
-		if (app_zram_distribution
-			    [i]) // number of zram page with 4 entry: <1, 1~2, 2~3 , >3 app refault duration
+		// number of zram page with 4 entry: <1, 1~2, 2~3 , >3 app refault duration
+		if (app_zram_distribution[i])
 			sprintf(msg, "%s, %llu", msg, app_zram_distribution[i]);
 		else
 			sprintf(msg, "%s, -1", msg);
@@ -1184,11 +1158,9 @@ void print_swap_lifetime_log(void)
 	spin_unlock(&swpin_ac_lock);
 	/* Dormant pages threshold: large proportion of swap in < 2 * app refault duration (only enable zRAM Page Admission) */
 	sprintf(msg, "swap_in_refault_duration");
+	// number of swap-in with 4 entry: <1, 1~2, >2, (* refault duration). The fouth entry is unused
 	for (i = 0; i < 4; i++)
-		sprintf(msg, "%s, %llu", msg,
-			atomic_long_read(
-				&swap_in_refault_duration
-					[i])); // number of swap-in with 4 entry: <1, 1~2, >2, (* refault duration). The fouth entry is unused
+		sprintf(msg, "%s, %llu", msg, atomic_long_read(&swap_in_refault_duration[i]));
 	printk("ycc hyswp_info scan_round(%d), %s, all, %lld", scan_round, msg,
 	       local_all_lifetime_swp_in);
 	//unused
@@ -1240,6 +1212,8 @@ static void show_info()
 	if (anon_fault)
 		printk("ycc hyswp_info anon_fault_lat fault>avg lat>lat (10^-6 sec), %llu, %llu, %llu",
 		       anon_fault, anon_fault_lat / anon_fault, anon_fault_lat);
+	
+	/* zRAM and flash average swap in latency */
 	if (anon_zram_lat_cnt && anon_flash_lat_cnt)
 		printk("ycc hyswp_info dev_avg_fault_lat zram > flash (10^-6 sec), %llu, %llu",
 		       anon_zram_lat / anon_zram_lat_cnt, anon_flash_lat / anon_flash_lat_cnt);
@@ -1320,12 +1294,6 @@ static int hyswp_migrate(void *p)
 
 	scan_round = 0;
 
-	/* zram idle */
-	// pre_zram_idle = vzalloc(max_zram_idle_index);
-	// this_round_page_idle = vzalloc(max_zram_idle_index);
-	// if (!pre_zram_idle || !this_round_page_idle)
-	// 	printk("ycc fail to alloc pre_zram_idle");
-
 	spin_lock(&swpin_ac_lock);
 	flash_swap_ac_time = vzalloc(max_flash_swap_slot * sizeof(unsigned));
 	spin_unlock(&swpin_ac_lock);
@@ -1333,10 +1301,6 @@ static int hyswp_migrate(void *p)
 		printk("ycc fail to alloc flash_swap_ac_time");
 
 	init_statistic();
-
-	/* app swap cache hit and ra */
-	// memset(app_swap_cache_hit, 0, sizeof(app_swap_cache_hit));
-	// memset(app_total_ra, 0, sizeof(app_total_ra));
 
 	for (;;) {
 		if (kthread_should_stop())
@@ -1362,7 +1326,6 @@ static int hyswp_migrate(void *p)
 
 		free_page_cnt /= 3;
 		free_page_cnt = min((unsigned int)10000, free_page_cnt);
-		// zram_idle_update();
 		reset_zram_lifetime();
 		reset_app_workingset_activate();
 		if (hyswp_migrate_enable && check_hybird_swap()) {
@@ -1373,9 +1336,6 @@ static int hyswp_migrate(void *p)
 				start_zram_migrate(); // evicts cold app
 				start_zram_idle_migrate(); // evicts dormant page
 			}
-		} else if (swap_page_distribution) {
-			// scan_mm_swap_page_count(); // only for statistic, not do any migration
-			;
 		}
 		scan_mm_swap_page_count(); // only for statistic, not do any migration
 
