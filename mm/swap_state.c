@@ -104,20 +104,18 @@ unsigned long check_hybird_swap(void)
 {
 	unsigned long swp_dev_cnt = 0, i;
 
-	if (!get_hyswp_enable_flag())
+	if (!get_hyswp_enable_flag()) // disable hybrid swap
 		return 0;
 
 	for (i = 0; i < MAX_SWAPFILES; i++) {
 		swp_entry_t entry = swp_entry(i, 1);
-
 		/* Avoid get_swap_device() to warn for bad swap entry */
 		if (!swp_swap_info(entry))
 			continue;
 		swp_dev_cnt++;
 	}
-	// printk("ycc dev count %d, total swp page %d",swp_dev_cnt,ret);
 	if (swp_dev_cnt >= 2)
-		return 1; // not skip
+		return 1; // multiple swap enable
 	return 0;
 }
 EXPORT_SYMBOL_GPL(check_hybird_swap);
@@ -277,11 +275,9 @@ int add_to_swap(struct page *page)
 	anon_vma = page_anon_vma(page);
 	page_pfn = page_to_pfn(page);
 	page_uid = page_pid = -1;
-	if (anon_vma)
-	{
+	if (anon_vma) {
 		pgoff_start = page_to_pgoff(page);
-		anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start,
-									   pgoff_start)
+		anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start, pgoff_start)
 		{
 			vma = avc->vma;
 			if (vma)
@@ -292,7 +288,6 @@ int add_to_swap(struct page *page)
 		if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
 			page_uid = vma->vm_mm->owner->cred->uid.val;
 	}
-	
 
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(!PageUptodate(page), page);
@@ -300,9 +295,9 @@ int add_to_swap(struct page *page)
 	entry = get_swap_page(page);
 	if (!entry.val)
 		return 0;
-	
+
 	/* flash swap access time*/
-	if(swp_type(entry)){
+	if (swp_type(entry)) {
 		unsigned long offset;
 		offset = swp_offset(entry);
 		update_flash_ac_time(offset);
@@ -470,7 +465,6 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 	int page_uid, page_pid;
 	unsigned long page_pgd;
 	unsigned long refault_activate_ratio = 200;
-	// unsigned long large_vma_size = (1UL) << PMD_SHIFT;
 
 	si = get_swap_device(entry);
 	if (!si)
@@ -505,8 +499,8 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		// 			swp_offset(entry), PFN_DOWN(addr));
 		// 	}
 
-		/* page fault in zram or swap */ 
-		// need to flash all ROM when adding a parameter to vmstat
+		/* page fault in zram or swap */
+		/* need to flash all ROM when adding a parameter to vmstat */
 		// if(swp_offset(entry))
 		// 	count_vm_event(SWPIN_FLASH); // need to flash ROM to mobile upon adding parameters to /proc/vmstat
 		// else
@@ -514,9 +508,9 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 
 		put_app_swap_in_pattern(page_uid, si_type);
 		if (swp_type(entry)) // mark: temp to count page fault in zram,swp
-			count_vm_event(THP_SWPOUT_FALLBACK);
+			count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
 		else
-			count_vm_event(THP_SWPOUT);
+			count_vm_event(THP_SWPOUT); // page fault on flash
 		/* page fault in which mm_struct */
 		if (show_fault_distribution)
 			put_mm_fault_distribution(refault_activate_ratio);
@@ -561,7 +555,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 					atomic_long_inc(&long_lifetime_swap_in);
 					long_lifetime = true;
 				}
-				
+
 				/* section 3.c: Page Migration */
 				/* Dormant pages threshold: large proportion of swap in < 2 * app refault duration (only enable zRAM Page Admission) */
 				if (lifetime < avg_lifetime) // < 1 * avg lifetime
@@ -570,7 +564,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 					atomic_long_inc(&swap_in_refault_duration[1]);
 				else if (lifetime >= avg_lifetime * 2) // > 2 * avg lifetime
 					atomic_long_inc(&swap_in_refault_duration[2]);
-				else // xx: empty
+				else // xx: reduntant entry
 					atomic_long_inc(&swap_in_refault_duration[3]);
 
 				put_app_lifetime_swap_in(page_uid, long_lifetime);
@@ -601,8 +595,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			hits = SWAP_RA_HITS(ra_val);
 			if (readahead)
 				hits = min_t(int, hits + 1, SWAP_RA_HITS_MAX);
-			atomic_long_set(&vma->swap_readahead_info,
-					SWAP_RA_VAL(addr, win, hits));
+			atomic_long_set(&vma->swap_readahead_info, SWAP_RA_VAL(addr, win, hits));
 		}
 
 		if (readahead) {
@@ -888,21 +881,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	// mask = 0;
 	mask = get_app_ra_window(page_uid, page_pid) - 1;
 
-	
 #endif
 	skipra = 0;
 
-// #ifdef swap_alloc_swap_ra_enable
-	// if (swp_type(entry) == 0)
-	// 	mask = 0;
-	// if (page_uid < 10220 || page_uid > 10250)
-	// 	mask = 0;
-// #endif
-
 	ra_window_size = mask + 1;
 	total_ra_cnt++;
-	while (ra_window_size)
-	{
+	while (ra_window_size) {
 		if (ra_window_size & 1 || ra_flag >= 9)
 			break;
 		ra_window_size >>= 1;
@@ -964,7 +948,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				actual_prefetch++;
 				actual_ra_read++;
 			}
-			if (swap_ra_break_flag)	{
+			if (swap_ra_break_flag) {
 				swap_ra_break_flag = false;
 				swap_ra_io++;
 				io_count++;
@@ -974,10 +958,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		put_page(page);
 	}
 	blk_finish_plug(&plug);
-	
+
 	/* swap_ra statistic */
+#if !defined swap_alloc_swap_ra_enable && !defined swap_alloc_enable
 	if (actual_ra_read < max_ra_page) {
-		if(actual_ra_read > 2)
+		if (actual_ra_read > 2)
 			prefetch_cnt++;
 		else
 			no_prefetch_cnt++;
@@ -986,6 +971,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		else
 			actual_ra_page[1]++;
 	}
+#endif
 	if (io_count < max_ra_page)
 		ra_io_cnt[io_count]++;
 	if (actual_ra_read)
@@ -1025,21 +1011,16 @@ void exit_swap_address_space(unsigned int type)
 	swapper_spaces[type] = NULL;
 }
 
-static inline void swap_ra_clamp_pfn(struct vm_area_struct *vma,
-                     unsigned long faddr,
-				     unsigned long lpfn,
-					 unsigned long rpfn,
-					 unsigned long *start,
+static inline void swap_ra_clamp_pfn(struct vm_area_struct *vma, unsigned long faddr,
+				     unsigned long lpfn, unsigned long rpfn, unsigned long *start,
 				     unsigned long *end)
 {
-	*start = max3(lpfn, PFN_DOWN(READ_ONCE(vma->vm_start)),
-              PFN_DOWN(faddr & PMD_MASK));
+	*start = max3(lpfn, PFN_DOWN(READ_ONCE(vma->vm_start)), PFN_DOWN(faddr & PMD_MASK));
 	*end = min3(rpfn, PFN_DOWN(READ_ONCE(vma->vm_end)),
 		    PFN_DOWN((faddr & PMD_MASK) + PMD_SIZE));
 }
 
-static void swap_ra_info(struct vm_fault *vmf,
-			struct vma_swap_readahead *ra_info)
+static void swap_ra_info(struct vm_fault *vmf, struct vma_swap_readahead *ra_info)
 {
 	struct vm_area_struct *vma = vmf->vma;
 	unsigned long ra_val;
@@ -1119,8 +1100,8 @@ static void swap_ra_info(struct vm_fault *vmf,
  * Caller must hold read mmap_lock if vmf->vma is not NULL.
  *
  */
-static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
- 					   struct vm_fault *vmf, unsigned skip_cnt)
+static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask, struct vm_fault *vmf,
+				       unsigned skip_cnt)
 {
 	struct blk_plug plug;
 	struct vm_area_struct *vma = vmf->vma;
@@ -1129,7 +1110,9 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 	swp_entry_t entry;
 	unsigned int i;
 	bool page_allocated;
-	struct vma_swap_readahead ra_info = {0,};
+	struct vma_swap_readahead ra_info = {
+		0,
+	};
 	int page_uid, page_pid;
 	unsigned long skipra = 0, readra = 0; // ycc modify
 	skipra = 0;
@@ -1153,15 +1136,9 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		entry = pte_to_swp_entry(pentry);
 		if (unlikely(non_swap_entry(entry)))
 			continue;
-		// ycc modify
-		// if(entry.val!=fentry.val && swp_type(entry)==0){
-		// 	// prefetch in zram: skip
-		// 	skipra++;
-		// 	continue;
-		// }
 
-		page = __read_swap_cache_async(entry, gfp_mask, vma,
-						   vmf->address, &page_allocated, skip_cnt);
+		page = __read_swap_cache_async(entry, gfp_mask, vma, vmf->address, &page_allocated,
+					       skip_cnt);
 		if (!page)
 			continue;
 		if (page_allocated) {

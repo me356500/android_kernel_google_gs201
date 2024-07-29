@@ -1042,6 +1042,7 @@ no_page:
 
 
 #ifdef swap_alloc_enable
+/* flash allocation module */
 static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 			       unsigned char usage, int nr,
 			       swp_entry_t slots[], struct vm_area_struct *vma) // ycc flash swap alloc
@@ -1420,10 +1421,6 @@ start_over:
 		plist_requeue(&si->avail_lists[node], &swap_avail_heads[node]);
 		spin_unlock(&swap_avail_lock);
 		// ycc modify
-		// //debug
-		// printk("ycc zram_empty %d, swp_enpty %d, avail_pg %u",plist_node_empty(&si->avail_lists[node]),plist_node_empty(&next->avail_lists[node]),avail_pgs); 
-		// zram total avail_page 786432(3G), zram+swp 1835000(7G) 
-		// printk("ycc swap_type %d, highest %d, lowest %d, prio %d, entry_size %d, n_goal %d", si->type, si->highest_bit, si->lowest_bit, si->prio, entry_size, n_goal);
 		if(plist_node_empty(&si->avail_lists[node])||plist_node_empty(&next->avail_lists[node])){
 			NotDegrade=1;
 		}

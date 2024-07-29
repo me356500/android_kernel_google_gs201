@@ -71,15 +71,17 @@ static bool (*zram_idle_check_ptr)(unsigned) = NULL;
 // static unsigned mark_idle_round = 0;
 // static unsigned idle_scan_mm_value = 20, pre_idle_scan_mm_value = 10;
 // static unsigned zram_idle_stat = zram_idle_NOOP;
-static unsigned zram_idle_migration_cnt = 0; // Page Migration: number of page are migrated each round
-static bool zram_idle_migration_flag = false; // To identify whether Page Migrator is migrating cold apps or dormant pages
+static unsigned zram_idle_migration_cnt =
+	0; // Page Migration: number of page are migrated each round
+static bool zram_idle_migration_flag =
+	false; // To identify whether Page Migrator is migrating cold apps or dormant pages
 /* get zram access time */
 static unsigned (*get_zram_access_time_ptr)(unsigned) = NULL;
 /* flash swap access time*/
 static DEFINE_SPINLOCK(swpin_ac_lock);
 unsigned *flash_swap_ac_time = NULL;
 atomic_long_t all_lifetime_swap_in, long_lifetime_swap_in;
-atomic_long_t swap_in_refault_duration[4]; // <1, 1~2, >2 * avg lifetime 
+atomic_long_t swap_in_refault_duration[4]; // <1, 1~2, >2 * avg lifetime
 
 #define number_time_slot 20
 #define time_slot 100
@@ -141,7 +143,9 @@ int mm_uid;
 
 #define page_zram_slot 4
 unsigned long app_zram_distribution[page_zram_slot];
-unsigned long per_app_swap_distribution[20][page_zram_slot]; // in each app, active page = arr[x][0] + arr[x][1], dormant page = arr[x][2] + arr[x][3]
+unsigned long per_app_swap_distribution
+	[20]
+	[page_zram_slot]; // in each app, active page = arr[x][0] + arr[x][1], dormant page = arr[x][2] + arr[x][3]
 
 /* app-based swap readahead*/
 #define total_proc_slot 10000
@@ -671,16 +675,6 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 		if (zram_idle_migration_flag) { // zram idle page migrate
 			struct timespec64 ts;
 			unsigned acc_time = 0, lifetime = 0, lifetime_th = 0, avg_lifetime = 0;
-
-			// if (offset >= max_zram_idle_index - 200)
-			// 	continue;
-			// spin_lock(&zram_idle_lock);
-			// if (!call_zram_idle_check(offset)) {
-			// 	spin_unlock(&zram_idle_lock);
-			// 	continue;
-			// }
-			// spin_unlock(&zram_idle_lock);
-
 			// ycc test
 			if (si && !swp_type(entry) && mm_uid >= 10200 && mm_uid < 10250) {
 				if (si->swap_map[offset] && si->swap_map[offset] < SWAP_MAP_MAX) {
@@ -693,7 +687,7 @@ static void scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr,
 				lifetime_th = avg_lifetime * dormant_page_threshold /
 					      dormant_page_th_devide;
 				lifetime_th = min((unsigned)3000, lifetime_th);
-				lifetime_th = max((unsigned)100, lifetime_th);
+				lifetime_th = max((unsigned)300, lifetime_th);
 				// lifetime_th = 600;
 				if (lifetime < lifetime_th)
 					continue;
@@ -831,7 +825,7 @@ static void scan_vma(struct mm_struct *mm, unsigned si_type)
 	mmap_read_unlock(mm);
 }
 
-static void pseudo_scan_vma(struct mm_struct *mm) // unused: count large/small vma 
+static void pseudo_scan_vma(struct mm_struct *mm) // unused: count large/small vma
 {
 	struct vm_area_struct *vma;
 	unsigned long large_vma_size = (1UL) << PMD_SHIFT;
@@ -1047,7 +1041,6 @@ static void scan_mm_swap_page_count() // count zram, flash page in each mm
 		show_swap_page_distribution();
 }
 
-
 /* print log */
 void print_swap_ra_log(void)
 {
@@ -1110,11 +1103,12 @@ void print_swap_ra_log(void)
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_flash_ra[i]);
 	printk("ycc hyswp_info, scan_round,%d, %s", scan_round, msg);
-	
+
 	/* avg swap_ra size */
 	/* section 2-b: major of swap-in doesn't prefetch */
 	sprintf(msg, "swap_in_prefetch no_prefetch > prefetch");
-	printk("ycc hyswp_info scan_round(%d), %s, %llu, %llu", scan_round, msg, no_prefetch_cnt, prefetch_cnt);
+	printk("ycc hyswp_info scan_round(%d), %s, %llu, %llu", scan_round, msg, no_prefetch_cnt,
+	       prefetch_cnt);
 	spin_unlock(&distribution_lock);
 }
 
@@ -1147,7 +1141,7 @@ void print_swap_lifetime_log(void)
 	/* section 3-c */
 	/* get zram lifetime time */
 	/* Dormant page threshold = app refault duration *2 */
-	sprintf(msg, "refault_duration"); 
+	sprintf(msg, "refault_duration");
 	for (i = 20; i < total_app_slot; i++) {
 		if (app_refault_cnt[i])
 			sprintf(msg, "%s, %llu", msg, app_refault_duration[i] / app_refault_cnt[i]);
@@ -1166,7 +1160,7 @@ void print_swap_lifetime_log(void)
 		}
 	}
 	// unused
-	sprintf(msg, "longlife_rate"); 
+	sprintf(msg, "longlife_rate");
 	for (i = 20; i < total_app_slot; i++) {
 		if (app_all_lifetime[i])
 			sprintf(msg, "%s, %llu", msg,
@@ -1180,7 +1174,8 @@ void print_swap_lifetime_log(void)
 	/* Dormant pages threshold: many page in zRAM > 2 * app refault duration (only enable zRAM Page Admission) */
 	sprintf(msg, "zram_page_refault_duration");
 	for (i = 0; i < page_zram_slot; i++) {
-		if (app_zram_distribution[i]) // number of zram page with 4 entry: <1, 1~2, 2~3 , >3 app refault duration
+		if (app_zram_distribution
+			    [i]) // number of zram page with 4 entry: <1, 1~2, 2~3 , >3 app refault duration
 			sprintf(msg, "%s, %llu", msg, app_zram_distribution[i]);
 		else
 			sprintf(msg, "%s, -1", msg);
@@ -1190,7 +1185,10 @@ void print_swap_lifetime_log(void)
 	/* Dormant pages threshold: large proportion of swap in < 2 * app refault duration (only enable zRAM Page Admission) */
 	sprintf(msg, "swap_in_refault_duration");
 	for (i = 0; i < 4; i++)
-		sprintf(msg, "%s, %llu", msg, atomic_long_read(&swap_in_refault_duration[i])); // number of swap-in with 4 entry: <1, 1~2, >2, (* refault duration). The fouth entry is unused
+		sprintf(msg, "%s, %llu", msg,
+			atomic_long_read(
+				&swap_in_refault_duration
+					[i])); // number of swap-in with 4 entry: <1, 1~2, >2, (* refault duration). The fouth entry is unused
 	printk("ycc hyswp_info scan_round(%d), %s, all, %lld", scan_round, msg,
 	       local_all_lifetime_swp_in);
 	//unused
@@ -1205,7 +1203,7 @@ void print_swap_distribution_log(void)
 	char msg[1024] = { 0 };
 	/* per app swap pattern */
 	/* section 2-c : motivative observation */
-	/* swap-in cdf */ 
+	/* swap-in cdf */
 	printk("ycc hyswp_info *---app distribution start---*");
 	for (j = 0; j < 20; j++) {
 		if (j + 10220 >= 10224 && j + 10220 <= 10238) {

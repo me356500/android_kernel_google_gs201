@@ -2,10 +2,10 @@
 #define _LINUX_MM_HYSWP_MIGRATE_H
 
 /* swap alloc */
+/* enable Flash Swap Alloaction Module and App-Base Prefetch policy */
 // #define swap_alloc_enable
 // #define swap_alloc_swap_ra_enable
 /* hybrid swap */
-// #define cold_app_threshold 10
 extern int hyswp_scan_sec;
 extern volatile int zram_usage;
 
@@ -14,10 +14,11 @@ extern bool get_hyswp_enable_flag(void);
 extern bool cold_app_identification(unsigned WA_ratio, unsigned long anon_size, unsigned long swap_size);
 
 /* zram idle */
-// #define max_zram_idle_index (3 * 1024 * 1024 / 4 + 100)
-extern unsigned char *pre_zram_idle, *this_round_page_idle;
-extern void register_zram_idle(bool (*zram_idle_check)(unsigned));
-extern bool call_zram_idle_check(unsigned index);
+// #define max_zram_idle_index (3 * 1024 * 1024 / 4 + 100) 
+// unused 
+extern unsigned char *pre_zram_idle, *this_round_page_idle; // unused
+extern void register_zram_idle(bool (*zram_idle_check)(unsigned)); // unused
+extern bool call_zram_idle_check(unsigned index); // unused
 /* get zram access time */
 #define fault_zram_acc_time true
 #define show_app_zram_acctime true

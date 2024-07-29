@@ -319,6 +319,7 @@ swp_entry_t get_swap_page(struct page *page)
 	struct anon_vma_chain *avc;
 	struct vm_area_struct *vma = NULL;
 	pgoff_t pgoff_start;
+	// zRAM Page Admission module
 	unsigned long page_uid;
 	unsigned int anon_WA_ratio; // ,zram_usage;
 	// int zram_fullness, refault_th;
@@ -387,7 +388,6 @@ swp_entry_t get_swap_page(struct page *page)
 
 			/* Cold app -> downgrade to flash */
 			if (cold_app_identification(anon_WA_ratio, anon_size, swap_size)) {
-				// printk("ycc downgrade_f %u th(%u)", page_uid, anon_WA_ratio);
 				get_swap_pages(1, &entry, 1, 0, vma);
 				count_vm_event(THP_ZERO_PAGE_ALLOC);
 				goto out;
