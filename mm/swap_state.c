@@ -23,6 +23,8 @@
 #include <linux/huge_mm.h>
 #include <linux/shmem_fs.h>
 #include "internal.h"
+#include <linux/rmap.h> // ycc add
+#include <linux/hyswp_migrate.h> // ycc add
 
 /*
  * swapper_space is a fiction, retained to simplify the path through
@@ -103,7 +105,7 @@ unsigned long check_hybird_swap(void)
 	unsigned long swp_dev_cnt = 0, ret=0;
 	struct address_space *spaces;
 	// struct swap_info_struct *si;
-
+	return 0;
 	for (i = 0; i < MAX_SWAPFILES; i++) {
 		swp_entry_t entry = swp_entry(i, 1);
 
@@ -123,7 +125,7 @@ unsigned long check_hybird_swap(void)
 	}
 	// printk("ycc dev count %d, total swp page %d",swp_dev_cnt,ret);
 	if(swp_dev_cnt>=2)
-		return 1; // not skip
+		return 0; // not skip
 	return 0;
 }
 EXPORT_SYMBOL_GPL(check_hybird_swap);
@@ -282,6 +284,13 @@ int add_to_swap(struct page *page)
 	entry = get_swap_page(page);
 	if (!entry.val)
 		return 0;
+	
+	/* flash swap access time*/
+	if(swp_type(entry)){
+		unsigned long offset;
+		offset = swp_offset(entry);
+		update_flash_ac_time(offset);
+	}
 
 	/*
 	 * XArray node allocations from PF_MEMALLOC contexts could
@@ -444,8 +453,25 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 	if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	
-	// ycc modify
-	printk("ycc swp_offset %llu swp_type %llu pfn %llu uid %llu",swp_offset(entry),swp_type(entry),PFN_DOWN(addr),page_uid);
+	/* get zram access time */
+	if (page_uid >= 10200 && page_uid < 10250) {
+		unsigned acc_time, lifetime;
+		if (si && swp_type(entry)==0) {
+			/* flash swap access time*/
+			unsigned long offset;
+			offset = swp_offset(entry);
+			if (si->swap_map[offset] && si->swap_map[offset] < SWAP_MAP_MAX) {
+				struct timespec64 ts;
+				acc_time = get_flash_ac_time(offset);
+				ts = ktime_to_timespec64(ktime_get_boottime());
+				lifetime = (unsigned)ts.tv_sec - acc_time;
+				// put to swap in lifetime
+				if (lifetime < (unsigned)10000 && acc_time)
+					put_refault_duration(page_uid, lifetime);
+				update_flash_ac_time(offset);
+			}
+		}
+	}
 
 	INC_CACHE_INFO(find_total);
 	if (page) {
@@ -612,7 +638,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		if(vma&&vma->vm_mm){
 			if(refault)
 				vma->vm_mm->nr_anon_refault++;
-			printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+			// printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			vma->vm_mm->nr_anon_fault++;
 		}
 	}
@@ -743,12 +769,13 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	bool do_poll = true, page_allocated;
 	struct vm_area_struct *vma = vmf->vma;
 	unsigned long addr = vmf->address;
-	unsigned long skipra = 0 , readra = 0;
+	unsigned long skipra, readra;
 
+	skipra = readra = 0;
 	mask = swapin_nr_pages(offset) - 1;
 
 	// ycc modify cluster
-	mask = 8 - 1; // fix_ra
+	// mask = 8 - 1; // fix_ra
 
 	if (!mask)
 		goto skip;
@@ -772,11 +799,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	blk_start_plug(&plug);
 	for (offset = start_offset; offset <= end_offset ; offset++) {
 
-		if(swp_type(entry)==0){
-			// ycc modify : skip zram_ra
-			skipra++;
-			continue;
-		}
+		// if(swp_type(entry)==0){
+		// 	// ycc modify : skip zram_ra
+		// 	skipra++;
+		// 	continue;
+		// }
 		
 		/* Ok, do the async read-ahead now */
 		page = __read_swap_cache_async(
@@ -796,7 +823,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	}
 	blk_finish_plug(&plug);
 
-	printk("ycc prefetch cluster,%llu,%lu,%lu,%lu,%llu",mask+1,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
+	// printk("ycc prefetch cluster,%llu,%lu,%lu,%lu,%llu",mask+1,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain();	/* Push any new pages onto the LRU now */
 skip:
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll);
@@ -882,7 +909,7 @@ static void swap_ra_info(struct vm_fault *vmf,
 	ra_info->win = win = __swapin_nr_pages(pfn, fpfn, hits,
 					       max_win, prev_win);
 	// ycc modify
-	ra_info->win = win = 8;
+	// ra_info->win = win = 8; // fix_ra
 	atomic_long_set(&vma->swap_readahead_info,
 			SWAP_RA_VAL(faddr, win, 0));
 
@@ -940,7 +967,9 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 	unsigned int i;
 	bool page_allocated;
 	struct vma_swap_readahead ra_info = {0,};
-	unsigned long skipra = 0 , readra = 0; // ycc modify
+	unsigned long skipra, readra; // ycc modify
+
+	skipra = readra = 0;
 
 	swap_ra_info(vmf, &ra_info);
 	if (ra_info.win == 1)
@@ -958,11 +987,11 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		if (unlikely(non_swap_entry(entry)))
 			continue;
 		// ycc modify
-		if(entry.val!=fentry.val && swp_type(entry)==0){
-			// prefetch in zram: skip
-			skipra++;
-			continue;
-		}
+		// if(entry.val!=fentry.val && swp_type(entry)==0){
+		// 	// prefetch in zram: skip
+		// 	skipra++;
+		// 	continue;
+		// }
 
 		page = __read_swap_cache_async(entry, gfp_mask, vma,
 					       vmf->address, &page_allocated);
@@ -980,7 +1009,7 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		put_page(page);
 	}
 	blk_finish_plug(&plug);
-	printk("ycc prefetch vma,%llu,%lu,%lu,%lu,%llu",ra_info.win,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
+	// printk("ycc prefetch vma,%llu,%lu,%lu,%lu,%llu",ra_info.win,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain();
 skip:
 	return read_swap_cache_async(fentry, gfp_mask, vma, vmf->address,

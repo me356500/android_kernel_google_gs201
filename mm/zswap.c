@@ -34,6 +34,8 @@
 #include <linux/pagemap.h>
 #include <linux/workqueue.h>
 
+#include <linux/rmap.h> // ycc add
+
 /*********************************
 * statistics
 **********************************/
@@ -110,11 +112,11 @@ static struct kernel_param_ops zswap_zpool_param_ops = {
 module_param_cb(zpool, &zswap_zpool_param_ops, &zswap_zpool_type, 0644);
 
 /* The maximum percentage of memory that the compressed pool can occupy */
-static unsigned int zswap_max_pool_percent = 20;
+static unsigned int zswap_max_pool_percent = 30;
 module_param_named(max_pool_percent, zswap_max_pool_percent, uint, 0644);
 
 /* The threshold for accepting new pages after the max_pool_percent was hit */
-static unsigned int zswap_accept_thr_percent = 90; /* of max pool size */
+static unsigned int zswap_accept_thr_percent = 100; /* of max pool size */
 module_param_named(accept_threshold_percent, zswap_accept_thr_percent,
 		   uint, 0644);
 
@@ -122,6 +124,11 @@ module_param_named(accept_threshold_percent, zswap_accept_thr_percent,
 static bool zswap_same_filled_pages_enabled = true;
 module_param_named(same_filled_pages_enabled, zswap_same_filled_pages_enabled,
 		   bool, 0644);
+
+#define max_virt_page_capacity 3*1024*1024/4
+static int zswap_virt_page_capacity = max_virt_page_capacity;
+module_param_named(virt_page_capacity, zswap_virt_page_capacity,
+		   int, 0644);
 
 /*********************************
 * data structures
@@ -220,12 +227,16 @@ static const struct zpool_ops zswap_zpool_ops = {
 
 static bool zswap_is_full(void)
 {
+	int zswap_virt_stored_pages = atomic_read(&zswap_stored_pages);
+	return zswap_virt_page_capacity <= zswap_virt_stored_pages;
 	return totalram_pages() * zswap_max_pool_percent / 100 <
 			DIV_ROUND_UP(zswap_pool_total_size, PAGE_SIZE);
 }
 
 static bool zswap_can_accept(void)
 {
+	int zswap_virt_stored_pages = atomic_read(&zswap_stored_pages);
+	return zswap_virt_page_capacity > zswap_virt_stored_pages;
 	return totalram_pages() * zswap_accept_thr_percent / 100 *
 				zswap_max_pool_percent / 100 >
 			DIV_ROUND_UP(zswap_pool_total_size, PAGE_SIZE);
@@ -1013,6 +1024,20 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 	struct zswap_header zhdr = { .swpentry = swp_entry(type, offset) };
 	gfp_t gfp;
 
+	/*select uid to swap*/
+	struct anon_vma *anon_vma;
+	struct anon_vma_chain *avc;
+	struct vm_area_struct *vma;
+	pgoff_t pgoff_start;
+	int page_uid;
+	unsigned int workingset_activate_ratio, zram_usage;
+	unsigned long anon_size, swap_size;
+
+	page_uid = -1;
+	workingset_activate_ratio = 99;
+	anon_size = swap_size = 0;
+	zram_usage = 200;
+
 	/* THP isn't supported */
 	if (PageTransHuge(page)) {
 		ret = -EINVAL;
@@ -1022,6 +1047,41 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 	if (!zswap_enabled || !tree) {
 		ret = -ENODEV;
 		goto reject;
+	}
+
+	/*select mm_struct to swap*/
+	anon_vma = page_anon_vma(page);
+	if (anon_vma) {
+		pgoff_start = page_to_pgoff(page);
+		anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start, pgoff_start)
+		{
+			vma = avc->vma;
+			if (vma)
+				break;
+		}
+		if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred) {
+			page_uid = vma->vm_mm->owner->cred->uid.val;
+			// printk("ycc mm_struct_refault %u %u %u %u", page_uid, vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+		}
+		// else if(vma&&vma->vm_mm){
+		// 	printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+		// }
+		if (vma && vma->vm_mm) {
+			workingset_activate_ratio =
+				vma->vm_mm->nr_anon_refault * 100 / vma->vm_mm->nr_anon_fault;
+
+			anon_size = get_mm_counter(vma->vm_mm, MM_ANONPAGES); // unit : page
+			swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
+
+			if ((workingset_activate_ratio <= 10 && anon_size + swap_size > 5000)) {
+				// printk("ycc downgrade %u",page_uid);
+				// get_swap_pages(1, &entry, 1,0);
+				// goto out;
+				;
+			}
+			// printk("ycc uid %d ,workingset_activate %u", page_uid,
+			//        workingset_activate_ratio);
+		}
 	}
 
 	/* reclaim space if needed */

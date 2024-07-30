@@ -45,6 +45,8 @@
 #include <linux/magic.h>
 #include <linux/kmemleak.h>
 
+#include <linux/rmap.h> // ycc add
+
 /*
  * NCHUNKS_ORDER determines the internal allocation granularity, effectively
  * adjusting internal fragmentation.  It also determines the number of
@@ -1334,6 +1336,19 @@ static int z3fold_reclaim_page(struct z3fold_pool *pool, unsigned int retries)
 	unsigned long first_handle = 0, middle_handle = 0, last_handle = 0;
 	struct z3fold_buddy_slots slots __attribute__((aligned(SLOTS_ALIGN)));
 
+	/*select uid to swap*/
+	struct anon_vma *anon_vma;
+	struct anon_vma_chain *avc;
+	struct vm_area_struct *vma;
+	pgoff_t pgoff_start;
+	int page_uid;
+	unsigned int workingset_activate_ratio;
+	unsigned long anon_size, swap_size;
+
+	page_uid = -1;
+	workingset_activate_ratio = 200;
+	anon_size = swap_size = 0;
+
 	rwlock_init(&slots.lock);
 	slots.pool = (unsigned long)pool | (1 << HANDLES_NOFREE);
 
@@ -1349,6 +1364,49 @@ static int z3fold_reclaim_page(struct z3fold_pool *pool, unsigned int retries)
 		}
 		list_for_each_prev(pos, &pool->lru) {
 			page = list_entry(pos, struct page, lru);
+
+			/*select mm_struct to swap*/
+			anon_vma = page_anon_vma(page);
+			if (anon_vma) {
+				pgoff_start = page_to_pgoff(page);
+				anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start,
+							       pgoff_start)
+				{
+					vma = avc->vma;
+					if (vma)
+						break;
+				}
+				if (vma && vma->vm_mm && vma->vm_mm->owner &&
+				    vma->vm_mm->owner->cred) {
+					page_uid = vma->vm_mm->owner->cred->uid.val;
+					// printk("ycc mm_struct_refault %u %u %u %u", page_uid, vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+				}
+				// else if(vma&&vma->vm_mm){
+				// 	printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+				// }
+				if (vma && vma->vm_mm) {
+					workingset_activate_ratio = vma->vm_mm->nr_anon_refault *
+								    100 / vma->vm_mm->nr_anon_fault;
+
+					// anon_size = get_mm_counter(vma->vm_mm,
+					// 			   MM_ANONPAGES); // unit : page
+					// swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
+
+					// if ((workingset_activate_ratio <= 10 &&
+					//      anon_size + swap_size > 5000)) {
+					// 	// printk("ycc downgrade %u",page_uid);
+					// 	// get_swap_pages(1, &entry, 1,0);
+					// 	// goto out;
+					// 	;
+					// }
+					printk("ycc uid %d ,workingset_activate %u", page_uid,
+					       workingset_activate_ratio);
+				}
+				else
+					printk("ycc no_mm found in z3fold");
+			}
+			else
+				printk("ycc no_anon_vma found in z3fold");
 
 			zhdr = page_address(page);
 			if (test_bit(PAGE_HEADLESS, &page->private)) {

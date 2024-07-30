@@ -344,16 +344,18 @@ int swap_readpage(struct page *page, bool synchronous)
 	if (frontswap_load(page) == 0) {
 		SetPageUptodate(page);
 		unlock_page(page);
+		count_vm_event(THP_SWPOUT); // ycc : swap in from memory pool
 		goto out;
 	}
-
 	if (data_race(sis->flags & SWP_FS_OPS)) {
 		struct file *swap_file = sis->swap_file;
 		struct address_space *mapping = swap_file->f_mapping;
 
 		ret = mapping->a_ops->readpage(swap_file, page);
-		if (!ret)
+		if (!ret) {
 			count_vm_event(PSWPIN);
+			count_vm_event(THP_SWPOUT_FALLBACK); // ycc : swap in from flash
+		}
 		goto out;
 	}
 
@@ -361,6 +363,7 @@ int swap_readpage(struct page *page, bool synchronous)
 		ret = bdev_read_page(sis->bdev, swap_page_sector(page), page);
 		if (!ret) {
 			count_vm_event(PSWPIN);
+			count_vm_event(THP_SWPOUT_FALLBACK); // ycc : swap in from flash
 			goto out;
 		}
 	}
@@ -384,6 +387,7 @@ int swap_readpage(struct page *page, bool synchronous)
 		bio->bi_private = current;
 	}
 	count_vm_event(PSWPIN);
+	count_vm_event(THP_SWPOUT_FALLBACK); // ycc : swap in from flash
 	bio_get(bio);
 	qc = submit_bio(bio);
 	while (synchronous) {
