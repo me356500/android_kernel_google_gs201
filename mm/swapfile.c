@@ -3175,6 +3175,8 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 	sector_t span;
 	unsigned long maxpages;
 	unsigned char *swap_map = NULL;
+	// add by tyc
+	struct swap_rmap *rmap = NULL;
 	struct swap_cluster_info *cluster_info = NULL;
 	unsigned long *frontswap_map = NULL;
 	struct page *page = NULL;
@@ -3249,6 +3251,14 @@ SYSCALL_DEFINE2(swapon, const char __user *, specialfile, int, swap_flags)
 		error = -ENOMEM;
 		goto bad_swap_unlock_inode;
 	}
+
+	// add by tyc
+	rmap = vzalloc(maxpages * sizeof(struct swap_rmap));
+	if (!rmap) {
+		error = -ENOMEM;
+		goto bad_swap_unlock_inode;
+	}
+	p->rmap = rmap;
 
 	if (p->bdev && blk_queue_stable_writes(p->bdev->bd_disk->queue))
 		p->flags |= SWP_STABLE_WRITES;
@@ -3405,6 +3415,8 @@ bad_swap:
 	p->flags = 0;
 	spin_unlock(&swap_lock);
 	vfree(swap_map);
+	// add by tyc
+	vfree(rmap);
 	kvfree(cluster_info);
 	kvfree(frontswap_map);
 	if (inced_nr_rotate_swap)

@@ -238,6 +238,12 @@ struct swap_cluster_list {
 	struct swap_cluster_info tail;
 };
 
+// add by tyc
+struct swap_rmap {
+	struct address_space *mapping;
+	pgoff_t index;
+};
+
 /*
  * The in-memory structure used to track swap areas.
  */
@@ -248,6 +254,8 @@ struct swap_info_struct {
 	signed char	type;		/* strange name for an index */
 	unsigned int	max;		/* extent of the swap_map */
 	unsigned char *swap_map;	/* vmalloc'ed array of usage counts */
+	// add by tyc
+	struct swap_rmap *rmap;		/* reverse map for swap entries */
 	struct swap_cluster_info *cluster_info; /* cluster info. Only for SSD */
 	struct swap_cluster_list free_clusters; /* free clusters list */
 	unsigned int lowest_bit;	/* index of first free in swap_map */
