@@ -23,6 +23,8 @@
 #include <linux/huge_mm.h>
 #include <linux/shmem_fs.h>
 #include "internal.h"
+#include <linux/mm_types.h>
+#include <linux/rmap.h>
 
 /*
  * swapper_space is a fiction, retained to simplify the path through
@@ -207,6 +209,26 @@ void __delete_from_swap_cache(struct page *page,
 	ADD_CACHE_INFO(del_total, nr);
 }
 
+// add by tyc
+void set_swap_rmap(struct page *page, swp_entry_t entry)
+{
+	struct swap_info_struct *si = get_swap_device(entry);
+	unsigned long offset = swp_offset(entry);
+
+	if (!si) {
+		printk(KERN_INFO "[tyc] set_swap_rmap: get_swap_device failed\n");
+		return;
+	}
+
+	si->rmap[offset].mapping = page->mapping;
+	si->rmap[offset].index = page->index;
+
+	put_swap_device(si);
+
+	return;
+}
+
+
 /**
  * add_to_swap - allocate swap space for a page
  * @page: page we want to move to swap
@@ -223,6 +245,8 @@ int add_to_swap(struct page *page)
 	VM_BUG_ON_PAGE(!PageUptodate(page), page);
 
 	entry = get_swap_page(page);
+	// add by tyc
+	set_swap_rmap(page, entry);
 	if (!entry.val)
 		return 0;
 
