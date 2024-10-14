@@ -365,6 +365,13 @@ swp_entry_t get_swap_page(struct page *page)
 			goto out;
 		}
 
+		/* wyc add : compaction*/
+		if (PageCompaction(page)) {
+			ClearPageCompaction(page);
+			get_swap_pages(1, &entry, 1, 2, vma);
+			goto out;
+		}
+
 		/*select mm_struct to swap*/
 		anon_vma = page_anon_vma(page);
 		if (anon_vma) {

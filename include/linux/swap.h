@@ -238,6 +238,11 @@ struct swap_cluster_list {
 	struct swap_cluster_info tail;
 };
 
+// add by tyc
+struct swap_rmap {
+	struct address_space *mapping;
+	pgoff_t index;
+};
 /*
  * The in-memory structure used to track swap areas.
  */
@@ -248,6 +253,8 @@ struct swap_info_struct {
 	signed char	type;		/* strange name for an index */
 	unsigned int	max;		/* extent of the swap_map */
 	unsigned char *swap_map;	/* vmalloc'ed array of usage counts */
+	// add by tyc
+	struct swap_rmap *rmap;		/* reverse map for swap entries */
 	struct swap_cluster_info *cluster_info; /* cluster info. Only for SSD */
 	struct swap_cluster_list free_clusters; /* free clusters list */
 	unsigned int lowest_bit;	/* index of first free in swap_map */
@@ -486,6 +493,9 @@ extern void swap_free(swp_entry_t);
 extern void swapcache_free_entries(swp_entry_t *entries, int n);
 extern int free_swap_and_cache(swp_entry_t);
 int swap_type_of(dev_t device, sector_t offset);
+// add by tyc
+int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
+		unsigned long addr, swp_entry_t entry, struct page *page);
 int find_first_swap(dev_t *device);
 extern unsigned int count_swap_pages(int, int);
 extern sector_t map_swap_page(struct page *, struct block_device **);

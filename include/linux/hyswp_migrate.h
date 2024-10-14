@@ -3,8 +3,8 @@
 
 /* swap alloc */
 /* enable Flash Swap Alloaction Module and App-Base Prefetch policy */
-// #define swap_alloc_enable
-// #define swap_alloc_swap_ra_enable
+#define swap_alloc_enable
+#define swap_alloc_swap_ra_enable
 /* hybrid swap */
 extern int hyswp_scan_sec;
 extern volatile int zram_usage;
@@ -27,6 +27,9 @@ extern unsigned call_zram_access_time(unsigned index);
 /* flash swap access time*/
 #define swap_page_8GB (8 * 1024 * 1024 / 4)
 #define max_flash_swap_slot (12 * 1024 * 1024 / 4 + 100)
+#define flash_swap_block 4096
+#define per_app_swap_slot 256
+#define COMP_THRESHOLD 20
 // 8GB flash swap
 extern void update_flash_ac_time(unsigned long slot);
 extern unsigned get_flash_ac_time(unsigned long slot);
@@ -63,6 +66,9 @@ extern unsigned long total_ra_size_cnt[10], total_ra_cnt;
 extern unsigned long actual_ra_page[max_ra_page];
 extern unsigned long ra_io_cnt[max_ra_page];
 extern unsigned long no_prefetch_cnt, prefetch_cnt;
+/* swap-in continuity */
+extern unsigned long same_app_adj, diff_app_adj, same_app, diff_app;
+extern unsigned long pre_pid, pre_offset;
 /* system anon workingset_activate */
 extern atomic_long_t anon_refault_page, anon_wa_refault;
 

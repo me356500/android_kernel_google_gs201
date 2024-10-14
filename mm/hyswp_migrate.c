@@ -111,7 +111,8 @@ unsigned long total_ra_size_cnt[10];
 unsigned long actual_ra_page[max_ra_page];
 unsigned long ra_io_cnt[max_ra_page];
 unsigned long no_prefetch_cnt = 0, prefetch_cnt = 0;
-
+unsigned long same_app_adj = 0, diff_app_adj = 0, same_app, diff_app = 0;
+unsigned long pre_pid = -1, pre_offset = 0;
 /* app swap cache hit and ra */
 unsigned app_total_ra[total_app_slot];
 unsigned app_swap_cache_hit[total_app_slot];
@@ -1247,6 +1248,8 @@ static void show_info()
 	print_swap_distribution_log();
 
 	printk("ycc hyswp_info -----------------------------------------------");
+
+	printk("wyc swapin_info, %d, %d, %d, %d\n", same_app_adj, same_app, diff_app_adj, diff_app);
 }
 
 static int hyswp_migrate(void *p)

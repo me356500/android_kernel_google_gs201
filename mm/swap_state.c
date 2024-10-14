@@ -23,6 +23,7 @@
 #include <linux/huge_mm.h>
 #include <linux/shmem_fs.h>
 #include "internal.h"
+#include <linux/mm_types.h>
 #include <linux/rmap.h> // ycc add
 #include <linux/hyswp_migrate.h> // ycc add
 
@@ -252,6 +253,24 @@ void __delete_from_swap_cache(struct page *page, swp_entry_t entry, void *shadow
 	ADD_CACHE_INFO(del_total, nr);
 }
 
+static void set_swap_rmap(struct page *page, swp_entry_t entry)
+{
+	struct swap_info_struct *si = get_swap_device(entry);
+	unsigned long offset = swp_offset(entry);
+
+	if (!si) {
+		printk(KERN_INFO "[tyc] anonymous set_swap_rmap: get_swap_device failed\n");
+		return;
+	}
+
+	si->rmap[offset].mapping = page->mapping;
+	si->rmap[offset].index = page->index;
+
+	put_swap_device(si);
+
+	return;
+}
+
 /**
  * add_to_swap - allocate swap space for a page
  * @page: page we want to move to swap
@@ -295,6 +314,14 @@ int add_to_swap(struct page *page)
 	entry = get_swap_page(page);
 	if (!entry.val)
 		return 0;
+
+	if (PageCompaction(page)) {
+		unsigned int offset;
+		offset = swp_offset(entry);
+		printk(KERN_INFO "[tyc] anonymous page %p migrate to %u\n", page, offset);
+		ClearPageCompaction(page);
+	}
+	set_swap_rmap(page, entry);
 
 	/* flash swap access time*/
 	if (swp_type(entry)) {
@@ -877,6 +904,28 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	if (vma && vma->vm_mm && vma->vm_mm->owner)
 		page_pid = vma->vm_mm->owner->pid;
+	
+	// wyc record swap-in continuity
+	if (pre_pid == page_pid) {
+		if (offset == pre_offset + 1 || offset == pre_offset - 1) {
+			same_app_adj++;
+		}
+		else {
+			same_app++;
+		}
+	}
+	else {
+		if (offset == pre_offset + 1 || offset == pre_offset - 1) {
+			diff_app_adj++;
+		}
+		else {
+			diff_app++;
+		}
+	}
+
+	pre_pid = page_pid;
+	pre_offset = offset;
+
 #ifdef swap_alloc_swap_ra_enable
 	// mask = 0;
 	mask = get_app_ra_window(page_uid, page_pid) - 1;

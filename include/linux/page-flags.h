@@ -125,6 +125,8 @@ enum pageflags {
 	PG_unevictable,		/* Page is "unevictable"  */
 	// ycc modify
 	PG_reswapin,
+	// wyc modify
+	PG_compaction,
 
 #ifdef CONFIG_MMU
 	PG_mlocked,		/* Page is vma mlocked */
@@ -423,6 +425,10 @@ PAGEFLAG(Reswapin, reswapin, PF_ANY)
 	__CLEARPAGEFLAG(Reswapin, reswapin, PF_ANY)
 	__SETPAGEFLAG(Reswapin, reswapin, PF_ANY)
 
+// wyc modify
+PAGEFLAG(Compaction, compaction, PF_ANY)
+	__CLEARPAGEFLAG(Compaction, compaction, PF_ANY)
+	__SETPAGEFLAG(Compaction, compaction, PF_ANY)
 
 #ifdef CONFIG_MMU
 PAGEFLAG(Mlocked, mlocked, PF_NO_TAIL)

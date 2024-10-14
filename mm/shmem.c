@@ -39,6 +39,8 @@
 #include <linux/frontswap.h>
 #include <linux/fs_parser.h>
 #include <linux/mm_inline.h>
+#include <linux/mm_types.h>
+#include <linux/rmap.h>
 
 #include <asm/tlbflush.h> /* for arch/microblaze update_mmu_cache() */
 
@@ -146,10 +148,12 @@ static unsigned long shmem_default_max_inodes(void)
 static bool shmem_should_replace_page(struct page *page, gfp_t gfp);
 static int shmem_replace_page(struct page **pagep, gfp_t gfp,
 				struct shmem_inode_info *info, pgoff_t index);
+/*
 static int shmem_swapin_page(struct inode *inode, pgoff_t index,
 			     struct page **pagep, enum sgp_type sgp,
 			     gfp_t gfp, struct vm_area_struct *vma,
 			     vm_fault_t *fault_type);
+*/
 static int shmem_getpage_gfp(struct inode *inode, pgoff_t index,
 		struct page **pagep, enum sgp_type sgp,
 		gfp_t gfp, struct vm_area_struct *vma,
@@ -1364,6 +1368,25 @@ int shmem_unuse(unsigned int type, bool frontswap,
 	return error;
 }
 
+// add by tyc
+static void set_swap_rmap(struct address_space *mapping, pgoff_t index, swp_entry_t entry)
+{
+	struct swap_info_struct *si = get_swap_device(entry);
+	unsigned long offset = swp_offset(entry);
+
+	if (!si) {
+		printk(KERN_INFO "[tyc] shmem set_swap_rmap: get_swap_device failed\n");
+		return;
+	}
+
+	si->rmap[offset].mapping = mapping;
+	si->rmap[offset].index = index;
+
+	put_swap_device(si);
+
+	return;
+}
+
 /*
  * Move the page from the page cache to the swap cache.
  */
@@ -1433,6 +1456,14 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	swap = get_swap_page(page);
 	if (!swap.val)
 		goto redirty;
+
+	if (PageCompaction(page)) {
+		unsigned int offset;
+		offset = swp_offset(swap);
+		printk(KERN_INFO "[tyc] shmem page %p migrate to %u\n", page, offset);
+		ClearPageCompaction(page);
+	}
+	set_swap_rmap(mapping, index, swap);
 
 	/*
 	 * Add inode to shmem_unuse()'s list of swapped-out inodes,
@@ -1705,7 +1736,9 @@ static int shmem_replace_page(struct page **pagep, gfp_t gfp,
  * Returns 0 and the page in pagep if success. On failure, returns the
  * error code and NULL in *pagep.
  */
-static int shmem_swapin_page(struct inode *inode, pgoff_t index,
+// static int shmem_swapin_page(struct inode *inode, pgoff_t index,
+// add by tyc
+int shmem_swapin_page(struct inode *inode, pgoff_t index,
 			     struct page **pagep, enum sgp_type sgp,
 			     gfp_t gfp, struct vm_area_struct *vma,
 			     vm_fault_t *fault_type)
