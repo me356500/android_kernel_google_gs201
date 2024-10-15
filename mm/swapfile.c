@@ -83,7 +83,8 @@ struct free_swap_map_node
 };
 LIST_HEAD(free_blk_list);
 static unsigned int free_blk_cnt = 0;
-static unsigned int swap_block_pid[flash_swap_block] = {0};
+static unsigned int swap_block_pid[8192] = {0};
+static int first_full = 0;
 #endif
 
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
@@ -1059,6 +1060,7 @@ no_page:
 // wyc swap compaction
 static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
     unsigned int block_cnt = 0;
+	unsigned int prnt_cnt = 0;
     unsigned int block_id = 0;
     unsigned int block_offset = 1;
     unsigned int victim_id = -1;
@@ -1079,18 +1081,27 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
             if (READ_ONCE(si->swap_map[offset]) != SWAP_MAP_BAD && READ_ONCE(si->swap_map[offset]) && READ_ONCE(si->swap_map[offset]) != SWAP_HAS_CACHE) {
                 ++block_cnt;
             }
+			if (READ_ONCE(si->swap_map[offset])) {
+				++prnt_cnt;
+			}
         }
         if (block_cnt < victim_cnt) {
             victim_id = block_id;
             victim_cnt = block_cnt;
         }
-		// printk("wyc block: %d, cnt : %d\n", block_id, block_cnt);
+		if (first_full == 0)
+			printk("wyc block_id, cnt, %d, %d\n", block_id, prnt_cnt);
     }
+
+	
+	if (victim_id == -1) {
+		printk(KERN_ERR "wyc victim selection error\n");
+	}
 
     // compaction
     for (block_offset = 1; block_offset <= per_app_swap_slot; block_offset++) {
 		offset = (victim_id * per_app_swap_slot) + block_offset;
-        if (READ_ONCE(si->swap_map[offset]) && READ_ONCE(si->swap_map[offset]) != SWAP_HAS_CACHE) {
+        if (READ_ONCE(si->swap_map[offset]) != SWAP_MAP_BAD && READ_ONCE(si->swap_map[offset]) && READ_ONCE(si->swap_map[offset]) != SWAP_HAS_CACHE) {
             migrate_swap_page(type, offset);
         }
     }
@@ -1098,6 +1109,10 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
     // printk("wyc compaction_block_id, %d\n", victim_id);
     // add to free list
 	spin_lock(&free_list_lock);
+	if (first_full == 0) {
+		first_full = 1;
+	}
+	
     free_node = (struct free_swap_map_node *)kmalloc(sizeof(*free_node), GFP_KERNEL);
     free_node->block_id = victim_id;
     INIT_LIST_HEAD(&free_node->list);

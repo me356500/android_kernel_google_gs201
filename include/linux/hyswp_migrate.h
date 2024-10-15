@@ -27,9 +27,6 @@ extern unsigned call_zram_access_time(unsigned index);
 /* flash swap access time*/
 #define swap_page_8GB (8 * 1024 * 1024 / 4)
 #define max_flash_swap_slot (12 * 1024 * 1024 / 4 + 100)
-#define flash_swap_block 4096
-#define per_app_swap_slot 256
-#define COMP_THRESHOLD 20
 // 8GB flash swap
 extern void update_flash_ac_time(unsigned long slot);
 extern unsigned get_flash_ac_time(unsigned long slot);
@@ -72,4 +69,8 @@ extern unsigned long pre_pid, pre_offset;
 /* system anon workingset_activate */
 extern atomic_long_t anon_refault_page, anon_wa_refault;
 
+/* swap compaction */
+extern unsigned flash_swap_block;
+extern unsigned per_app_swap_slot;
+extern unsigned COMP_THRESHOLD;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

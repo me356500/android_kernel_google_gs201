@@ -26,6 +26,14 @@ int page_demote_cnt = 0, page_promote_cnt = 0;
 int PMD_cnt = 0, vma_cnt = 0, large_vma_cnt = 0;
 enum si_dev { zram_dev = 0, flash_dev };
 
+/* compaction setting: module parameter*/
+unsigned flash_swap_block = 4096;
+unsigned per_app_swap_slot = 256;
+unsigned COMP_THRESHOLD = 50;
+
+module_param_named(flash_swap_block, flash_swap_block, uint, 0644);
+module_param_named(per_app_swap_slot, per_app_swap_slot, uint, 0644);
+module_param_named(COMP_THRESHOLD, COMP_THRESHOLD, uint, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
