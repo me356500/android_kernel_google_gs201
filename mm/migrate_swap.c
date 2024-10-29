@@ -87,7 +87,7 @@ bool migrate_swap_page_one(struct page *page, struct vm_area_struct *vma, unsign
     pmd_t *pmd;
     pte_t *pte;
 	int ret = 0;
-    volatile unsigned char *swap_map;
+    unsigned char swap_map;
     
     if (!check_pte_offset(vma, addr, offset))
         return true;
@@ -101,7 +101,7 @@ bool migrate_swap_page_one(struct page *page, struct vm_area_struct *vma, unsign
     pte = pte_offset_map(pmd, addr);
     
     pte_unmap(pte);
-    swap_map = &si->swap_map[offset];
+    swap_map = READ_ONCE(si->swap_map[offset]);
     newpage = lookup_swap_cache(*entry, vma, addr, 0);
     if (!newpage) {
         struct vm_fault vmf = {
@@ -113,8 +113,8 @@ bool migrate_swap_page_one(struct page *page, struct vm_area_struct *vma, unsign
                     &vmf, 1);
     }
     if (!newpage) {
-        if (*swap_map == 0 || *swap_map == SWAP_MAP_BAD) {
-            printk(KERN_ERR "[tyc] swap_map %u error\n", *swap_map);
+        if (swap_map == 0 || swap_map == SWAP_MAP_BAD) {
+            printk(KERN_ERR "[tyc] swap_map %u error\n", swap_map);
             return false;
         }
         printk(KERN_ERR "[tyc] swapin_readahead failed\n");
@@ -200,7 +200,7 @@ void migrate_swap_page(unsigned long type, unsigned int offset)
         goto out;
     }
 
-    tmp_count = swap_count(si->swap_map[offset]);
+    tmp_count = swap_count(READ_ONCE(si->swap_map[offset]));
     if (tmp_count == SWAP_MAP_BAD) {
         printk(KERN_INFO "[tyc] migrate error SWAP_MAP_BAD\n");
         goto out;
@@ -227,7 +227,7 @@ static int migrate_thread_func(void *data)
 
         entry = swp_entry(type, offset);
         si = get_swap_device(entry);
-        tmp_count = swap_count(si->swap_map[offset]);
+        tmp_count = swap_count(READ_ONCE(si->swap_map[offset]));
 
         if (tmp_count == SWAP_MAP_BAD)
             goto free;

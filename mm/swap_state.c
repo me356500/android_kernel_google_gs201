@@ -318,7 +318,7 @@ int add_to_swap(struct page *page)
 	if (PageCompaction(page)) {
 		unsigned int offset;
 		offset = swp_offset(entry);
-		printk(KERN_INFO "[tyc] anonymous page %p migrate to %u\n", page, offset);
+		//printk(KERN_INFO "[tyc] anonymous page %p migrate to %u\n", page, offset);
 		ClearPageCompaction(page);
 	}
 	set_swap_rmap(page, entry);

@@ -73,4 +73,11 @@ extern atomic_long_t anon_refault_page, anon_wa_refault;
 extern unsigned flash_swap_block;
 extern unsigned per_app_swap_slot;
 extern unsigned COMP_THRESHOLD;
+extern unsigned long long total_compaction_cnt;
+extern unsigned long long total_valid_slot;
+extern unsigned long long min_valid_slot;
+extern unsigned long long max_valid_slot;
+extern unsigned long long comp_page;
+extern unsigned long long res_page;
+extern unsigned long long swp_out_page;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

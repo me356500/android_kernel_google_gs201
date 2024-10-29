@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/vmalloc.h>
+#include <linux/swapfile.h>
 
 int hyswp_scan_sec = 30;
 static unsigned short scan_round;
@@ -26,6 +27,13 @@ int page_demote_cnt = 0, page_promote_cnt = 0;
 int PMD_cnt = 0, vma_cnt = 0, large_vma_cnt = 0;
 enum si_dev { zram_dev = 0, flash_dev };
 
+unsigned long long total_compaction_cnt = 0;
+unsigned long long total_valid_slot = 0;
+unsigned long long min_valid_slot = 256;
+unsigned long long max_valid_slot = 0;
+unsigned long long comp_page = 0;
+unsigned long long res_page = 0;
+unsigned long long swp_out_page = 0;
 /* compaction setting: module parameter*/
 unsigned flash_swap_block = 4096;
 unsigned per_app_swap_slot = 256;
@@ -1258,6 +1266,9 @@ static void show_info()
 	printk("ycc hyswp_info -----------------------------------------------");
 
 	printk("wyc swapin_info, %d, %d, %d, %d\n", same_app_adj, same_app, diff_app_adj, diff_app);
+	printk("wyc migrate_info, %d, %d\n", total_compaction_cnt, (total_valid_slot / total_compaction_cnt));
+	printk("wyc migrate_amount, %d, %d, %d\n", res_page, comp_page, swp_out_page);
+	printk("wyc minmax_valid_slot, %d, %d\n", min_valid_slot, max_valid_slot);
 }
 
 static int hyswp_migrate(void *p)

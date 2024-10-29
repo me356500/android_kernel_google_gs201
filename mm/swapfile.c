@@ -76,6 +76,7 @@ static struct pid_swap_map_node *get_pid_hash(int pid)
 static unsigned swap_alloc_free_offset = 1;
 // wyc add
 static DEFINE_SPINLOCK(free_list_lock);
+static DEFINE_SPINLOCK(swap_block_pid_lock);
 struct free_swap_map_node
 {
 	struct list_head list;
@@ -85,6 +86,7 @@ LIST_HEAD(free_blk_list);
 static unsigned int free_blk_cnt = 0;
 static unsigned int swap_block_pid[8192] = {0};
 static int first_full = 0;
+static int free_list_init = 0;
 #endif
 
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
@@ -1066,22 +1068,34 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
     unsigned int victim_id = -1;
     unsigned int victim_cnt = 256;
 	unsigned int offset = 0;
-
+	unsigned char swap_map;
     struct free_swap_map_node *free_node;
+	struct pid_swap_map_node *pid_swap_map;
+	int page_pid = 0;
     
     // victim selection : greedy
     for (block_id = 0; block_id < flash_swap_block - 1; block_id++) {
-        block_cnt = 0;
-		if (swap_block_pid[block_id] == 0) {
+        block_cnt = prnt_cnt = 0;
+
+		// skip empty block & open block
+		page_pid = swap_block_pid[block_id];
+		if (page_pid == 0) {
 			continue;
 		}
+
+		pid_swap_map = get_pid_hash(page_pid);
+		if (((pid_swap_map->offest - 1) / per_app_swap_slot) == block_id) {
+			continue;
+		}
+
         for (block_offset = 1; block_offset <= per_app_swap_slot; block_offset++) {
 			
 			offset = (block_id * per_app_swap_slot) + block_offset;
-            if (READ_ONCE(si->swap_map[offset]) != SWAP_MAP_BAD && READ_ONCE(si->swap_map[offset]) && READ_ONCE(si->swap_map[offset]) != SWAP_HAS_CACHE) {
+			swap_map = READ_ONCE(si->swap_map[offset]);
+            if (swap_map != SWAP_MAP_BAD && swap_map && swap_map != SWAP_HAS_CACHE) {
                 ++block_cnt;
             }
-			if (READ_ONCE(si->swap_map[offset])) {
+			if (swap_map) {
 				++prnt_cnt;
 			}
         }
@@ -1093,6 +1107,15 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
 			printk("wyc block_id, cnt, %d, %d\n", block_id, prnt_cnt);
     }
 
+	// Record migrate statistics
+	total_valid_slot += victim_cnt;
+	total_compaction_cnt += 1;
+
+	if (victim_cnt < min_valid_slot)
+		min_valid_slot = victim_cnt;
+	
+	if (victim_cnt > max_valid_slot)
+		max_valid_slot = victim_cnt;
 	
 	if (victim_id == -1) {
 		printk(KERN_ERR "wyc victim selection error\n");
@@ -1101,7 +1124,8 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
     // compaction
     for (block_offset = 1; block_offset <= per_app_swap_slot; block_offset++) {
 		offset = (victim_id * per_app_swap_slot) + block_offset;
-        if (READ_ONCE(si->swap_map[offset]) != SWAP_MAP_BAD && READ_ONCE(si->swap_map[offset]) && READ_ONCE(si->swap_map[offset]) != SWAP_HAS_CACHE) {
+		swap_map = READ_ONCE(si->swap_map[offset]);
+        if (swap_map != SWAP_MAP_BAD && swap_map && swap_map != SWAP_HAS_CACHE) {
             migrate_swap_page(type, offset);
         }
     }
@@ -1121,7 +1145,10 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
 	spin_unlock(&free_list_lock);
 
 	// reset pid map
+	spin_lock(&swap_block_pid_lock);
 	swap_block_pid[victim_id] = 0;
+	spin_unlock(&swap_block_pid_lock);
+
 }
 
 static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
@@ -1146,7 +1173,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	struct free_swap_map_node *cur_free_node;
 
 	// wyc init free offset list
-	if (list_empty(&free_blk_list)) {
+	if (!first_full && list_empty(&free_blk_list)) {
 		spin_lock(&free_list_lock);
 		for (block_id = 0; block_id < flash_swap_block - 1; block_id++) {
 			struct free_swap_map_node *node = (struct free_swap_map_node *)kmalloc(sizeof(*node), GFP_KERNEL);
@@ -1155,6 +1182,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 			list_add_tail(&node->list, &free_blk_list); 
 			++free_blk_cnt;
 		}
+		free_list_init = 1;
 		spin_unlock(&free_list_lock);
 	}
 
@@ -1223,7 +1251,7 @@ pid_to_hash:
 			used_page = pid_swap_map->used_page; //debug
 			start_offset = offset;
 			if (swap_alloc_free_offset % (1024 * 1024 / 4) <= 255)
-				printk("ycc swap_alloc_used %d", swap_alloc_free_offset);
+				printk("ycc new_swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid NULL %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else if (pid_swap_map->used_page >= 256) {
 			// wyc assign free blk
@@ -1246,7 +1274,7 @@ pid_to_hash:
 			used_page = pid_swap_map->used_page; //debug
 			start_offset = offset;
 			if (swap_alloc_free_offset % (1024 * 1024 / 4) <= 255)
-				printk("ycc swap_alloc_used %d", swap_alloc_free_offset);
+				printk("ycc 256_swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid find %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else {
 			offset = pid_swap_map->offest + pid_swap_map->used_page;
@@ -1258,9 +1286,11 @@ pid_to_hash:
 			//        pid_swap_map->used_page, page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		}
 		// wyc record swap block pid
-		swap_block_pid[((offset - 1)/ 256)] = page_pid;
+		spin_lock(&swap_block_pid_lock);
+		swap_block_pid[((offset - 1) / per_app_swap_slot)] = page_pid;
+		spin_unlock(&swap_block_pid_lock);
 		if ((offset) % 100000 == 0)
-			printk("wyc bid: %ld, offset: %ld, pid: %d\n", ((offset - 1)/ 256), offset, page_pid);
+			printk("wyc bid: %ld, offset: %ld, pid: %d\n", ((offset - 1)/ per_app_swap_slot), offset, page_pid);
 		
 		spin_unlock(&swap_alloc_lock);
 		goto scan_swap_alloc;
@@ -1567,7 +1597,9 @@ int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int re
 	int n_ret = 0;
 	int node;
 	int NotDegrade = reswp;
+#ifdef swap_alloc_enable
 	int Flag_compaction = (reswp == 2);
+#endif
 
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && size == SWAPFILE_CLUSTER);
@@ -1601,7 +1633,7 @@ start_over:
 
 #ifdef swap_alloc_enable
 		// wyc check free block count
-		if (si->type && free_blk_cnt <= COMP_THRESHOLD && !Flag_compaction && !list_empty(&free_blk_list)) {
+		while (si->type && free_blk_cnt <= COMP_THRESHOLD && !Flag_compaction && free_list_init) {
 			swap_compaction(si, si->type);
 		}
 #endif
