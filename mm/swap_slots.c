@@ -307,6 +307,7 @@ swp_entry_t get_swap_page(struct page *page)
 {
 	swp_entry_t entry;
 	struct swap_slots_cache *cache;
+	bool disable_swap_slots_cache = true;
 
 	entry.val = 0;
 
@@ -325,23 +326,25 @@ swp_entry_t get_swap_page(struct page *page)
 	 * The alloc path here does not touch cache->slots_ret
 	 * so cache->free_lock is not taken.
 	 */
-	cache = raw_cpu_ptr(&swp_slots);
+	if (!disable_swap_slots_cache) {
+		cache = raw_cpu_ptr(&swp_slots);
 
-	if (likely(check_cache_active() && cache->slots)) {
-		mutex_lock(&cache->alloc_lock);
-		if (cache->slots) {
+		if (likely(check_cache_active() && cache->slots)) {
+			mutex_lock(&cache->alloc_lock);
+			if (cache->slots) {
 repeat:
-			if (cache->nr) {
-				entry = cache->slots[cache->cur];
-				cache->slots[cache->cur++].val = 0;
-				cache->nr--;
-			} else if (refill_swap_slots_cache(cache)) {
-				goto repeat;
+				if (cache->nr) {
+					entry = cache->slots[cache->cur];
+					cache->slots[cache->cur++].val = 0;
+					cache->nr--;
+				} else if (refill_swap_slots_cache(cache)) {
+					goto repeat;
+				}
 			}
+			mutex_unlock(&cache->alloc_lock);
+			if (entry.val)
+				goto out;
 		}
-		mutex_unlock(&cache->alloc_lock);
-		if (entry.val)
-			goto out;
 	}
 
 	get_swap_pages(1, &entry, 1, page);
