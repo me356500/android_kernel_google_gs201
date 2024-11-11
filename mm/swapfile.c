@@ -4256,6 +4256,8 @@ static int __init swapfile_init(void)
 	for_each_node(nid)
 		plist_head_init(&swap_avail_heads[nid]);
 
+	printk(KERN_INFO "[tyc] SWAPFILE_CLUSTER is %d\n", SWAPFILE_CLUSTER);
+
 	return 0;
 }
 subsys_initcall(swapfile_init);
