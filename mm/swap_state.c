@@ -245,10 +245,10 @@ int add_to_swap(struct page *page)
 	VM_BUG_ON_PAGE(!PageUptodate(page), page);
 
 	entry = get_swap_page(page);
-	// add by tyc
-	set_swap_rmap(page, entry);
 	if (!entry.val)
 		return 0;
+	// add by tyc
+	set_swap_rmap(page, entry);
 
 	/*
 	 * XArray node allocations from PF_MEMALLOC contexts could

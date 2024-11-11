@@ -1372,8 +1372,6 @@ static void set_swap_rmap(struct address_space *mapping, pgoff_t index, swp_entr
 	struct swap_info_struct *si = get_swap_device(entry);
 	unsigned long offset = swp_offset(entry);
 
-	printk(KERN_INFO "[tyc] shmem rmap offset = %x, mapping = %p, index = %x\n", offset, mapping, index);
-
 	if (!si) {
 		printk(KERN_INFO "[tyc] set_swap_rmap: get_swap_device failed\n");
 		return;
@@ -1454,9 +1452,10 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	}
 
 	swap = get_swap_page(page);
-	set_swap_rmap(mapping, index, swap);
 	if (!swap.val)
 		goto redirty;
+	// add by tyc
+	set_swap_rmap(mapping, index, swap);
 
 	/*
 	 * Add inode to shmem_unuse()'s list of swapped-out inodes,
