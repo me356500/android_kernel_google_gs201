@@ -142,6 +142,9 @@ static pid_t get_page_pid(struct page *page)
 }
 #endif
 
+static DEFINE_SPINLOCK(swap_block_pid_lock);
+static unsigned int swap_block_pid[8192] = {0};
+
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
@@ -624,6 +627,7 @@ static void free_cluster(struct swap_info_struct *si, unsigned long idx)
 	struct swap_cluster_info *ci = si->cluster_info + idx;
 
 	VM_BUG_ON(cluster_count(ci) != 0);
+	swap_block_pid[idx] = 0;
 	/*
 	 * If the swap is discardable, prepare discard the cluster
 	 * instead of free it immediately. The cluster will be freed
@@ -703,6 +707,77 @@ scan_swap_map_ssd_cluster_conflict(struct swap_info_struct *si,
 }
 
 #ifdef swap_alloc_enable
+
+static bool get_old_cluster(struct pid_to_cluster_node **node, pid_t pid, struct swap_info_struct *si)
+{
+	int victim_index = -1, i;
+	unsigned int min = SWAPFILE_CLUSTER;
+	struct swap_cluster_info *ci;
+
+	for (i = 0; i < (si->max / SWAPFILE_CLUSTER); i++) {
+		if (swap_block_pid[i] == pid) {
+			ci = lock_cluster(si, i * SWAPFILE_CLUSTER);
+			if (!cluster_is_free(ci) && cluster_count(ci) < min) {
+				min = cluster_count(ci);
+				victim_index = i;
+			}
+			unlock_cluster(ci);
+		}
+	}
+
+	if (victim_index == -1)
+		return false;
+
+	*node = pid_to_cluster_alloc(pid);
+	cluster_set_next(&(*node)->index, victim_index);
+	(*node)->next = victim_index * SWAPFILE_CLUSTER;
+	pid_to_cluster_add(*node);
+
+	return true;
+}
+
+static bool rob_other_cluster(struct pid_to_cluster_node **node, pid_t pid, struct swap_info_struct *si)
+{
+	int victim_index = -1, i;
+	unsigned int min = SWAPFILE_CLUSTER;
+	struct swap_cluster_info *ci;
+
+	for (i = 0; i < (si->max / SWAPFILE_CLUSTER); i++) {
+		if (swap_block_pid[i] != 0) {
+			ci = lock_cluster(si, i * SWAPFILE_CLUSTER);
+			if (!cluster_is_free(ci) && cluster_count(ci) < min) {
+				min = cluster_count(ci);
+				victim_index = i;
+			}
+			unlock_cluster(ci);
+		}
+	}
+
+	if (victim_index == -1)
+		return false;
+
+	*node = pid_to_cluster_alloc(pid);
+	cluster_set_next(&(*node)->index, victim_index);
+	(*node)->next = victim_index * SWAPFILE_CLUSTER;
+	pid_to_cluster_add(*node);
+
+	return true;
+}
+
+/*
+static bool get_old_cluster(struct pid_to_cluster_node *node, pid_t pid, struct swap_info_struct *si)
+{
+	count_vm_event(FLASH_SWAP_OLD_CLUSTER);
+	return false;
+}
+
+static bool rob_other_cluster(struct pid_to_cluster_node *node, pid_t pid, struct swap_info_struct *si)
+{
+	count_vm_event(FLASH_SWAP_ROB_CLUSTER);
+	return false;
+}
+*/
+
 static bool scan_swap_map_try_pid_cluster(struct swap_info_struct *si,
     unsigned long *offset, unsigned long *scan_base, pid_t pid)
 {
@@ -720,12 +795,19 @@ new_cluster:
             node->index = si->free_clusters.head;
             node->next = cluster_next(&node->index) * SWAPFILE_CLUSTER;
             pid_to_cluster_add(node);
+			spin_lock(&swap_block_pid_lock);
+			swap_block_pid[cluster_next(&node->index)] = pid;
+			spin_unlock(&swap_block_pid_lock);
         } else if (!cluster_list_empty(&si->discard_clusters)) {
             swap_do_scheduled_discard(si);
             *scan_base = this_cpu_read(*si->cluster_next_cpu);
             *offset = *scan_base;
             goto new_cluster;
-        } else
+        } else if (get_old_cluster(&node, pid, si)) {
+			count_vm_event(FLASH_SWAP_OLD_CLUSTER);
+		} else if (rob_other_cluster(&node, pid, si)) {
+			count_vm_event(FLASH_SWAP_ROB_CLUSTER);
+		} else
             return false;
     }
 

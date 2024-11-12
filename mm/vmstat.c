@@ -1353,6 +1353,8 @@ const char * const vmstat_text[] = {
 	"swap_ra_hit",
 	"flash_swap_scan",  // add by tyc
 	"flash_swap_cluster",  // add by tyc
+	"flash_swap_old_cluster",  // add by tyc
+	"flash_swap_rob_cluster",  // add by tyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",

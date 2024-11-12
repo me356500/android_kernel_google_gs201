@@ -126,6 +126,8 @@ enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		SWAP_RA_HIT,
 		FLASH_SWAP_SCAN,	// add by tyc
 		FLASH_SWAP_CLUSTER,	// add by tyc
+		FLASH_SWAP_OLD_CLUSTER,	// add by tyc
+		FLASH_SWAP_ROB_CLUSTER,	// add by tyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 		SPECULATIVE_PGFAULT_ANON,
