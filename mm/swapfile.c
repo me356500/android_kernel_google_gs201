@@ -1148,6 +1148,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	int n_ret = 0;
 	bool scanned_many = false;
     pid_t pid = get_page_pid(page);
+	bool scan = false;
 
 	/*
 	 * We try to cluster swap pages by allocating them sequentially
@@ -1309,9 +1310,15 @@ checks:
 done:
 	set_cluster_next(si, offset + 1);
 	si->flags -= SWP_SCANNING;
+	if (scan) {
+		count_vm_event(FLASH_SWAP_SCAN);
+	} else {
+		count_vm_event(FLASH_SWAP_CLUSTER);
+	}
 	return n_ret;
 
 scan:
+	scan = true;
 	spin_unlock(&si->lock);
 	while (++offset <= READ_ONCE(si->highest_bit)) {
 		if (data_race(!si->swap_map[offset])) {
