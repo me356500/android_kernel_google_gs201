@@ -1265,7 +1265,7 @@ static void show_info()
 
 	printk("ycc hyswp_info -----------------------------------------------");
 
-	printk("wyc swapin_info, %d, %d, %d, %d\n", same_app_adj, same_app, diff_app_adj, diff_app);
+	//printk("wyc swapin_info, %d, %d, %d, %d\n", same_app_adj, same_app, diff_app_adj, diff_app);
 	printk("wyc migrate_info, %d, %d\n", total_compaction_cnt, (total_valid_slot / total_compaction_cnt));
 	printk("wyc migrate_amount, %d, %d, %d\n", res_page, comp_page, swp_out_page);
 	printk("wyc minmax_valid_slot, %d, %d\n", min_valid_slot, max_valid_slot);

@@ -360,7 +360,6 @@ swp_entry_t get_swap_page(struct page *page)
 		/* The page is read by Page Migrator -> need to downgrade to flash */
 		if(PageReswapin(page)){
 			ClearPageReswapin(page);
-			++res_page;
 			get_swap_pages(1, &entry, 1, 0, vma);
 			count_vm_event(THP_ZERO_PAGE_ALLOC);
 			goto out;
@@ -369,11 +368,9 @@ swp_entry_t get_swap_page(struct page *page)
 		/* wyc add : compaction*/
 		if (PageCompaction(page)) {
 			ClearPageCompaction(page);
-			++comp_page;
 			get_swap_pages(1, &entry, 1, 2, vma);
 			goto out;
 		}
-		++swp_out_page;
 
 		/*select mm_struct to swap*/
 		anon_vma = page_anon_vma(page);

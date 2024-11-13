@@ -1150,7 +1150,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 		list_del(&page->lru);
 
 		if (PageCompaction(page)) {
-			printk(KERN_INFO "[tyc] shrink_page_list: page %p is Compaction\n", page);
+			//printk(KERN_INFO "[tyc] shrink_page_list: page %p is Compaction\n", page);
 			// goto keep;
 		}
 

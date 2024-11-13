@@ -752,6 +752,7 @@ error:
 /*
  * Like delete_from_page_cache, but substitutes swap for page.
  */
+/*
 static void shmem_delete_from_page_cache(struct page *page, void *radswap)
 {
 	struct address_space *mapping = page->mapping;
@@ -768,8 +769,7 @@ static void shmem_delete_from_page_cache(struct page *page, void *radswap)
 	xa_unlock_irq(&mapping->i_pages);
 	put_page(page);
 	BUG_ON(error);
-}
-
+}*/
 /*
  * Remove swap entry from page cache, free the swap and its page cache.
  */
@@ -1369,6 +1369,7 @@ int shmem_unuse(unsigned int type, bool frontswap,
 }
 
 // add by tyc
+/*
 static void set_swap_rmap(struct address_space *mapping, pgoff_t index, swp_entry_t entry)
 {
 	struct swap_info_struct *si = get_swap_device(entry);
@@ -1385,11 +1386,12 @@ static void set_swap_rmap(struct address_space *mapping, pgoff_t index, swp_entr
 	put_swap_device(si);
 
 	return;
-}
+}*/
 
 /*
  * Move the page from the page cache to the swap cache.
  */
+/*
 static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 {
 	struct shmem_inode_info *info;
@@ -1409,29 +1411,14 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	if (!total_swap_pages)
 		goto redirty;
 
-	/*
-	 * Our capabilities prevent regular writeback or sync from ever calling
-	 * shmem_writepage; but a stacking filesystem might use ->writepage of
-	 * its underlying filesystem, in which case tmpfs should write out to
-	 * swap only in response to memory pressure, and not for the writeback
-	 * threads or sync.
-	 */
+
+
 	if (!wbc->for_reclaim) {
-		WARN_ON_ONCE(1);	/* Still happens? Tell us about it! */
+		WARN_ON_ONCE(1);	
 		goto redirty;
 	}
 
-	/*
-	 * This is somewhat ridiculous, but without plumbing a SWAP_MAP_FALLOC
-	 * value into swapfile.c, the only way we can correctly account for a
-	 * fallocated page arriving here is now to initialize it and write it.
-	 *
-	 * That's okay for a page already fallocated earlier, but if we have
-	 * not yet completed the fallocation, then (a) we want to keep track
-	 * of this page in case we have to undo it, and (b) it may not be a
-	 * good idea to continue anyway, once we're pushing into swap.  So
-	 * reactivate the page, and let shmem_fallocate() quit when too many.
-	 */
+
 	if (!PageUptodate(page)) {
 		if (inode->i_private) {
 			struct shmem_falloc *shmem_falloc;
@@ -1460,19 +1447,12 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	if (PageCompaction(page)) {
 		unsigned int offset;
 		offset = swp_offset(swap);
-		printk(KERN_INFO "[tyc] shmem page %p migrate to %u\n", page, offset);
+		//printk(KERN_INFO "[tyc] shmem page %p migrate to %u\n", page, offset);
 		ClearPageCompaction(page);
 	}
 	set_swap_rmap(mapping, index, swap);
 
-	/*
-	 * Add inode to shmem_unuse()'s list of swapped-out inodes,
-	 * if it's not already there.  Do it now before the page is
-	 * moved to swap cache, when its pagelock no longer protects
-	 * the inode from eviction.  But don't unlock the mutex until
-	 * we've incremented swapped, because shmem_unuse_inode() will
-	 * prune a !swapped inode from the swaplist under this mutex.
-	 */
+
 	mutex_lock(&shmem_swaplist_mutex);
 	if (list_empty(&info->swaplist))
 		list_add(&info->swaplist, &shmem_swaplist);
@@ -1499,10 +1479,11 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 redirty:
 	set_page_dirty(page);
 	if (wbc->for_reclaim)
-		return AOP_WRITEPAGE_ACTIVATE;	/* Return with page locked */
+		return AOP_WRITEPAGE_ACTIVATE;	
+		
 	unlock_page(page);
 	return 0;
-}
+}*/
 
 #if defined(CONFIG_NUMA) && defined(CONFIG_TMPFS)
 static void shmem_show_mpol(struct seq_file *seq, struct mempolicy *mpol)
@@ -3867,7 +3848,7 @@ static void shmem_destroy_inodecache(void)
 }
 
 static const struct address_space_operations shmem_aops = {
-	.writepage	= shmem_writepage,
+	//.writepage	= shmem_writepage,
 	.set_page_dirty	= __set_page_dirty_no_writeback,
 #ifdef CONFIG_TMPFS
 	.write_begin	= shmem_write_begin,

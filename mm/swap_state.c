@@ -26,6 +26,7 @@
 #include <linux/mm_types.h>
 #include <linux/rmap.h> // ycc add
 #include <linux/hyswp_migrate.h> // ycc add
+#include <linux/ktime.h> // wyc add
 
 /*
  * swapper_space is a fiction, retained to simplify the path through
@@ -259,7 +260,7 @@ static void set_swap_rmap(struct page *page, swp_entry_t entry)
 	unsigned long offset = swp_offset(entry);
 
 	if (!si) {
-		printk(KERN_INFO "[tyc] anonymous set_swap_rmap: get_swap_device failed\n");
+		//printk(KERN_INFO "[tyc] anonymous set_swap_rmap: get_swap_device failed\n");
 		return;
 	}
 

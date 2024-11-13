@@ -140,8 +140,8 @@ bool migrate_swap_page_one(struct page *page, struct vm_area_struct *vma, unsign
 
     // lru_add_drain();
 
-    if (PageCompaction(newpage))
-        printk(KERN_INFO "[tyc] offset %u anon_page %p set compaction\n", offset, newpage);
+    //if (PageCompaction(newpage))
+        //printk(KERN_INFO "[tyc] offset %u anon_page %p set compaction\n", offset, newpage);
 
     return false;
 }
@@ -150,8 +150,8 @@ bool migrate_swap_page_shmem_one(struct page *page, struct vm_area_struct *vma, 
 {
 	struct inode *inode = page->mapping->host;
     int error = 0;
-    swp_entry_t *entry = (swp_entry_t *)arg;
-    unsigned int offset = swp_offset(*entry);
+    //swp_entry_t *entry = (swp_entry_t *)arg;
+    //unsigned int offset = swp_offset(*entry);
     struct page *swap = xa_load(&page->mapping->i_pages, page->index);
 
     if (!xa_is_value(swap)) {
@@ -175,8 +175,8 @@ bool migrate_swap_page_shmem_one(struct page *page, struct vm_area_struct *vma, 
 
     // lru_add_drain();
 
-    if (PageCompaction(swap))
-        printk(KERN_INFO "[tyc] offset %u shmem %p set compaction\n", offset, swap);
+    //if (PageCompaction(swap))
+        //printk(KERN_INFO "[tyc] offset %u shmem %p set compaction\n", offset, swap);
 
     return false;
 }
