@@ -1178,7 +1178,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 
 	// wyc init free offset list
 	spin_lock(&free_list_lock);
-	if (!first_full && list_empty(&free_blk_list)) {
+	if (!first_full && list_empty(&free_blk_list) && !free_list_init) {
 		for (block_id = 0; block_id < flash_swap_block - 10; block_id++) {
 			struct free_swap_map_node *node = (struct free_swap_map_node *)kmalloc(sizeof(*node), GFP_KERNEL);
 			node->block_id = block_id;
@@ -1212,11 +1212,11 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	 * cluster and swap cache.  For HDD, sequential access is more
 	 * important.
 	 */
-	if (si->flags & SWP_SOLIDSTATE)
+	/*if (si->flags & SWP_SOLIDSTATE)
 		scan_base = this_cpu_read(*si->cluster_next_cpu);
 	else
 		scan_base = si->cluster_next;
-	offset = scan_base;
+	offset = scan_base;*/
 
 	// ycc add to hash
 pid_to_hash:
@@ -1227,7 +1227,7 @@ pid_to_hash:
 	if (page_pid == -1) {
 		page_pid = 66666;
 	}
-	if (page_pid != -1) {
+	if (page_pid != -1 && free_blk_cnt) {
 		spin_lock(&swap_alloc_lock);
 		pid_swap_map = get_pid_hash(page_pid);
 		if (pid_swap_map == NULL) {
@@ -1299,7 +1299,7 @@ pid_to_hash:
 		spin_unlock(&swap_alloc_lock);
 		goto scan_swap_alloc;
 	}
-	goto scan;
+	goto checks;
 
 	/* SSD algorithm */
 	if (si->cluster_info) {
@@ -1345,25 +1345,8 @@ pid_to_hash:
 	}
 
 checks:
-	if (si->cluster_info) {
-		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
-		/* take a break if we already got some slots */
-			if (n_ret)
-				goto done;
-			if (!scan_swap_map_try_ssd_cluster(si, &offset,
-							&scan_base))
-				goto scan;
-		}
-	}
-	if (!(si->flags & SWP_WRITEOK))
-		goto no_page;
-	if (!si->highest_bit)
-		goto no_page;
-	if (offset > si->highest_bit)
-		scan_base = offset = si->lowest_bit;
-
 	// wyc add: find app free hole
-	if (free_list_init && list_empty(&free_blk_list)) { // swap full
+	if (free_list_init && !free_blk_cnt) { // swap full
 		for (block_id = 0; block_id < 4085; block_id++) {
 			if (swap_block_pid[block_id] == page_pid) {
 				// check free slot
@@ -1392,7 +1375,7 @@ checks:
 				// check free slot
 				block_cnt = 0;
 				for (block_offset = 1; block_offset <= 256; block_offset++) {
-					if (si->swap_map[(block_id * 256) + block_offset] == 0) {
+					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
 						++block_cnt;
 					}
 					if (block_cnt > victim_cnt) {
@@ -1401,15 +1384,17 @@ checks:
 					}
 				}
 			}
+			if (victim_cnt == 0) {
+				printk("wyc no_free_slot, %d, %d\n", victim_id, victim_cnt);
+			}
 			//
 			for (block_offset = 1; block_offset <= 256; block_offset++) {
-				if (si->swap_map[(victim_id * 256) + block_offset] == 0) {
+				if (READ_ONCE(si->swap_map[(victim_id * 256) + block_offset]) == 0) {
 					break;
 				}
 			}
 			if (block_offset > 256) {
-				offset = scan_base = si->highest_bit;
-				printk("wyc no_free_swap_map): %d, %d\n", block_id, block_offset);
+				goto checks;
 			}
 			else {
 				offset = scan_base = (victim_id * 256) + block_offset;
@@ -1417,6 +1402,23 @@ checks:
 			}
 		}	
 	}
+
+	if (si->cluster_info) {
+		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
+		/* take a break if we already got some slots */
+			if (n_ret)
+				goto done;
+			if (!scan_swap_map_try_ssd_cluster(si, &offset,
+							&scan_base))
+				goto scan;
+		}
+	}
+	if (!(si->flags & SWP_WRITEOK))
+		goto no_page;
+	if (!si->highest_bit)
+		goto no_page;
+	if (offset > si->highest_bit)
+		scan_base = offset = si->lowest_bit;
 	
 	ci = lock_cluster(si, offset);
 	/* reuse swap entry of cache-only swap if not busy. */
