@@ -1172,7 +1172,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	unsigned long block_id = 0, victim_id = 0;
 	unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
 
-	bool flag_free_slot = 0;
+	//bool flag_free_slot = 0;
 	// bool skip_app_hole = 0;
 	struct free_swap_map_node *cur_free_node;
 
@@ -1187,6 +1187,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 			++free_blk_cnt;
 		}
 		free_list_init = 1;
+		printk("wyc branch_same_app_empty_block\n");
 	}
 	spin_unlock(&free_list_lock);
 
@@ -1347,29 +1348,40 @@ pid_to_hash:
 checks:
 	// wyc add: find app free hole
 	if (free_list_init && !free_blk_cnt) { // swap full
+
+		victim_cnt = 0;
+
 		for (block_id = 0; block_id < 4085; block_id++) {
+			block_cnt = 0;
 			if (swap_block_pid[block_id] == page_pid) {
 				// check free slot
 				for (block_offset = 1; block_offset <= 256; block_offset++) {
 					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
-						flag_free_slot = 1;
-						break;
+						++block_cnt;
 					}
 				}
-			}
-			if (flag_free_slot) {
-				flag_free_slot = 0;
-				break;
+				if (block_cnt > victim_cnt) {
+					victim_cnt = block_cnt;
+					victim_id = block_id;
+				}
 			}
 		}
-		// no free slot
-		if (block_id < 4085) {
+		
+		if (victim_cnt) {
 			//printk("wyc find_hole_block: %d, offset: %d, pid: %d\n", block_id, block_offset, page_pid);
-			offset = scan_base = (block_id * 256) + block_offset;
+			for (block_offset = 1; block_offset <= 256; block_offset++) {
+				if (READ_ONCE(si->swap_map[(victim_id * 256) + block_offset]) == 0) {
+					break;
+				}
+			}
+			if (block_offset > 256) {
+				goto checks;
+			}
+			offset = scan_base = (victim_id * 256) + block_offset;
 			++res_page;
 		}
+		// no free slot
 		else  {
-			++comp_page;
 			victim_cnt = 0;
 			for (block_id = 0; block_id < 4085; block_id++) {
 				// check free slot
@@ -1400,6 +1412,7 @@ checks:
 				offset = scan_base = (victim_id * 256) + block_offset;
 				swap_block_pid[victim_id] = page_pid;
 			}
+			++comp_page;
 		}	
 	}
 
