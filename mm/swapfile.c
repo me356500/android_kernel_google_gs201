@@ -1374,6 +1374,9 @@ checks:
 					break;
 				}
 			}
+			if (block_offset > 256) {
+				goto checks;
+			}
 			offset = scan_base = (victim_id * 256) + block_offset;
 			++res_page;
 		}
