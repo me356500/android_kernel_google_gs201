@@ -1169,16 +1169,17 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	int start_offset = -1, used_page = -1;
 	struct pid_swap_map_node *pid_swap_map;
 	// wyc add
-	unsigned long block_id = 0, victim_id = 0;
-	unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
+	unsigned long block_id = 0;
+	//unsigned long victim_id = 0;
+	//unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
 
-	bool flag_free_slot = 0;
+	//bool flag_free_slot = 0;
 	// bool skip_app_hole = 0;
 	struct free_swap_map_node *cur_free_node;
 
 	// wyc init free offset list
 	spin_lock(&free_list_lock);
-	if (!first_full && list_empty(&free_blk_list)) {
+	if (!free_list_init && !free_blk_cnt) {
 		for (block_id = 0; block_id < flash_swap_block - 10; block_id++) {
 			struct free_swap_map_node *node = (struct free_swap_map_node *)kmalloc(sizeof(*node), GFP_KERNEL);
 			node->block_id = block_id;
@@ -1362,6 +1363,7 @@ checks:
 	if (offset > si->highest_bit)
 		scan_base = offset = si->lowest_bit;
 
+	/*
 	// wyc add: find app free hole
 	if (free_list_init && list_empty(&free_blk_list)) { // swap full
 		for (block_id = 0; block_id < 4085; block_id++) {
@@ -1416,7 +1418,7 @@ checks:
 				swap_block_pid[victim_id] = page_pid;
 			}
 		}	
-	}
+	}*/
 	
 	ci = lock_cluster(si, offset);
 	/* reuse swap entry of cache-only swap if not busy. */
@@ -1662,7 +1664,7 @@ start_over:
 
 #ifdef swap_alloc_enable
 		// wyc check free block count
-		while (si->type && free_blk_cnt <= COMP_THRESHOLD && !Flag_compaction && free_list_init == 99) {
+		while (si->type && free_blk_cnt <= COMP_THRESHOLD && !Flag_compaction && free_list_init) {
 			swap_compaction(si, si->type);
 		}
 #endif
