@@ -80,4 +80,6 @@ extern unsigned long long max_valid_slot;
 extern unsigned long long comp_page;
 extern unsigned long long res_page;
 extern unsigned long long swp_out_page;
+extern unsigned long long swp_out_adj;
+extern unsigned long long swp_out_nadj;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */
