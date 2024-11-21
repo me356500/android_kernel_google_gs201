@@ -52,6 +52,7 @@ struct pid_swap_map_node // ycc add
 	int pid;
 	unsigned used_page;
 	unsigned offest;
+	unsigned pre_offset;
 
 	struct hlist_node hash;
 };
@@ -1235,6 +1236,7 @@ pid_to_hash:
 			pid_swap_map = (struct pid_swap_map_node *)kmalloc(sizeof(*pid_swap_map),
 									   GFP_KERNEL);
 			pid_swap_map->pid = page_pid;
+			pid_swap_map->pre_offset = 0;
 			// wyc assign free blk
 			spin_lock(&free_list_lock);
 			if (!list_empty(&free_blk_list)) {
@@ -1413,7 +1415,16 @@ checks:
 				swap_block_pid[victim_id] = page_pid;
 			}
 			++comp_page;
+		}
+
+		pid_swap_map = get_pid_hash(page_pid);
+		if (pid_swap_map->pre_offset == offset + 1 || pid_swap_map->pre_offset == offset - 1) {
+			swp_out_adj++;
 		}	
+		else {
+			swp_out_nadj++;
+		}
+		pid_swap_map->pre_offset = offset;
 	}
 
 	if (si->cluster_info) {

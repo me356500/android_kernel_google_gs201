@@ -34,6 +34,8 @@ unsigned long long max_valid_slot = 0;
 unsigned long long comp_page = 0;
 unsigned long long res_page = 0;
 unsigned long long swp_out_page = 0;
+unsigned long long swp_out_adj = 0;
+unsigned long long swp_out_nadj = 0;
 /* compaction setting: module parameter*/
 unsigned flash_swap_block = 4096;
 unsigned per_app_swap_slot = 256;
@@ -1269,6 +1271,7 @@ static void show_info()
 	printk("wyc migrate_info, %d, %d\n", total_compaction_cnt, (total_valid_slot / total_compaction_cnt));
 	printk("wyc migrate_amount, %d, %d, %d\n", res_page, comp_page, swp_out_page);
 	printk("wyc minmax_valid_slot, %d, %d\n", min_valid_slot, max_valid_slot);
+	printk("wyc swap_out_continuoty, %d, %d\n", swp_out_adj, swp_out_nadj);
 }
 
 static int hyswp_migrate(void *p)
