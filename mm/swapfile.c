@@ -1349,8 +1349,17 @@ pid_to_hash:
 checks:
 	// wyc add: find app free hole
 	if (free_list_init && !free_blk_cnt) { // swap full
+
+		pid_swap_map = get_pid_hash(page_pid);
+		if (pid_swap_map == NULL) {
+			pid_swap_map = (struct pid_swap_map_node *)kmalloc(sizeof(*pid_swap_map),
+									   GFP_KERNEL);
+			pid_swap_map->pid = page_pid;
+			pid_swap_map->pre_offset = 0;
+		}
+
 		for (block_id = 0; block_id < 4085; block_id++) {
-			if (swap_block_pid[block_id] == page_pid) {
+			if (swap_block_pid[block_id] == page_pid && block_id != ((pid_swap_map->pre_offset - 1) / per_app_swap_slot)) {
 				// check free slot
 				for (block_offset = 1; block_offset <= 256; block_offset++) {
 					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
@@ -1404,7 +1413,6 @@ checks:
 			++comp_page;
 		}	
 
-		pid_swap_map = get_pid_hash(page_pid);
 		if (pid_swap_map->pre_offset == offset + 1 || pid_swap_map->pre_offset == offset - 1) {
 			swp_out_adj++;
 		}
