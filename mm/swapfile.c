@@ -1372,45 +1372,11 @@ checks:
 			flag_free_slot = 0;
 			offset = scan_base = (pid_swap_map->pre_offset + block_offset);
 			++res_page;
-			goto find_same_app_hole_done;
-		}
-		
-
-		// find empty same app block
-		victim_cnt = 0;
-
-		for (block_id = 0; block_id < 4085; block_id++) {
-			block_cnt = 0;
-			if (swap_block_pid[block_id] == page_pid) {
-				// check free slot
-				for (block_offset = 1; block_offset <= 256; block_offset++) {
-					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
-						++block_cnt;
-					}
-				}
-				if (block_cnt > victim_cnt) {
-					victim_cnt = block_cnt;
-					victim_id = block_id;
-				}
-			}
-		}
-		
-		if (victim_cnt) {
-			//printk("wyc find_hole_block: %d, offset: %d, pid: %d\n", block_id, block_offset, page_pid);
-			for (block_offset = 1; block_offset <= 256; block_offset++) {
-				if (READ_ONCE(si->swap_map[(victim_id * 256) + block_offset]) == 0) {
-					break;
-				}
-			}
-			if (block_offset > 256) {
-				goto checks;
-			}
-			offset = scan_base = (victim_id * 256) + block_offset;
-			++res_page;
-		}
-		// no free slot
-		else  {
+		} 
+		else {
+			
 			victim_cnt = 0;
+
 			for (block_id = 0; block_id < 4085; block_id++) {
 				// check free slot
 				block_cnt = 0;
@@ -1439,8 +1405,6 @@ checks:
 			}
 			++comp_page;
 		}
-
-find_same_app_hole_done:
 
 		if (pid_swap_map->pre_offset == offset + 1 || pid_swap_map->pre_offset == offset - 1) {
 			swp_out_adj++;
