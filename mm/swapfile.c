@@ -1173,7 +1173,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	unsigned long block_id = 0, victim_id = 0;
 	unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
 
-	//bool flag_free_slot = 0;
+	bool flag_free_slot = 0;
 	// bool skip_app_hole = 0;
 	struct free_swap_map_node *cur_free_node;
 
@@ -1350,7 +1350,33 @@ pid_to_hash:
 checks:
 	// wyc add: find app free hole
 	if (free_list_init && !free_blk_cnt) { // swap full
+		
+		pid_swap_map = get_pid_hash(page_pid);
+		if (pid_swap_map == NULL) {
+			pid_swap_map = (struct pid_swap_map_node *)kmalloc(sizeof(*pid_swap_map),
+									   GFP_KERNEL);
+			pid_swap_map->pid = page_pid;
+			pid_swap_map->pre_offset = 0;
+		}
 
+		// scan same app block
+		if (pid_swap_map->pre_offset % 256) {
+			for (block_offset = 1; ((pid_swap_map->pre_offset + block_offset) % 256) != 1; block_offset++) {
+				if (READ_ONCE(si->swap_map[(pid_swap_map->pre_offset + block_offset)]) == 0) {
+					flag_free_slot = 1;
+					break;
+				}
+			}
+		}
+		if (flag_free_slot) {
+			flag_free_slot = 0;
+			offset = scan_base = (pid_swap_map->pre_offset + block_offset);
+			++res_page;
+			goto find_same_app_hole_done;
+		}
+		
+
+		// find empty same app block
 		victim_cnt = 0;
 
 		for (block_id = 0; block_id < 4085; block_id++) {
@@ -1398,9 +1424,6 @@ checks:
 					}
 				}
 			}
-			if (victim_cnt == 0) {
-				printk("wyc no_free_slot, %d, %d\n", victim_id, victim_cnt);
-			}
 			//
 			for (block_offset = 1; block_offset <= 256; block_offset++) {
 				if (READ_ONCE(si->swap_map[(victim_id * 256) + block_offset]) == 0) {
@@ -1417,7 +1440,8 @@ checks:
 			++comp_page;
 		}
 
-		pid_swap_map = get_pid_hash(page_pid);
+find_same_app_hole_done:
+
 		if (pid_swap_map->pre_offset == offset + 1 || pid_swap_map->pre_offset == offset - 1) {
 			swp_out_adj++;
 		}	
