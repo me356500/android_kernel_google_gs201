@@ -1132,14 +1132,14 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
 
     // printk("wyc compaction_block_id, %d\n", victim_id);
     // add to free list
-	spin_lock(&free_list_lock);
+	
 	if (first_full == 0) {
 		first_full = 1;
 		WRITE_ONCE(comp_page, 0);
 		WRITE_ONCE(res_page, 0);
 		WRITE_ONCE(swp_out_page, 0);
 	}
-	
+	spin_lock(&free_list_lock);
     free_node = (struct free_swap_map_node *)kmalloc(sizeof(*free_node), GFP_KERNEL);
     free_node->block_id = victim_id;
     INIT_LIST_HEAD(&free_node->list);
@@ -1178,8 +1178,9 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	struct free_swap_map_node *cur_free_node;
 
 	// wyc init free offset list
-	spin_lock(&free_list_lock);
+	
 	if (!free_list_init && !free_blk_cnt) {
+		spin_lock(&free_list_lock);
 		for (block_id = 0; block_id < flash_swap_block - 10; block_id++) {
 			struct free_swap_map_node *node = (struct free_swap_map_node *)kmalloc(sizeof(*node), GFP_KERNEL);
 			node->block_id = block_id;
@@ -1187,9 +1188,10 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 			list_add_tail(&node->list, &free_blk_list); 
 			++free_blk_cnt;
 		}
+		spin_unlock(&free_list_lock);
 		free_list_init = 1;
 	}
-	spin_unlock(&free_list_lock);
+	
 
 	// ycc add to hash
 	if (vma && vma->vm_mm && vma->vm_mm->owner)
@@ -1236,18 +1238,18 @@ pid_to_hash:
 									   GFP_KERNEL);
 			pid_swap_map->pid = page_pid;
 			// wyc assign free blk
-			spin_lock(&free_list_lock);
 			if (!list_empty(&free_blk_list)) {
+				spin_lock(&free_list_lock);
 				cur_free_node = list_first_entry(&free_blk_list, struct free_swap_map_node, list);
 				swap_alloc_free_offset = (cur_free_node->block_id * 256) + 1;
 				list_del(&cur_free_node->list);
 				kfree(cur_free_node);
 				--free_blk_cnt;
+				spin_unlock(&free_list_lock);
 			}
 			else {
 				printk(KERN_ERR "wyc no_free_blk\n");
 			}
-			spin_unlock(&free_list_lock);
 
 			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
 			pid_swap_map->used_page = 1;
@@ -1260,18 +1262,18 @@ pid_to_hash:
 			// printk("ycc pid NULL %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else if (pid_swap_map->used_page >= 256) {
 			// wyc assign free blk
-			spin_lock(&free_list_lock);
 			if (!list_empty(&free_blk_list)) {
+				spin_lock(&free_list_lock);
 				cur_free_node = list_first_entry(&free_blk_list, struct free_swap_map_node, list);
 				swap_alloc_free_offset = (cur_free_node->block_id * 256) + 1;
 				list_del(&cur_free_node->list);
 				kfree(cur_free_node);
 				--free_blk_cnt;
+				spin_unlock(&free_list_lock);
 			}
 			else {
 				printk(KERN_ERR "wyc no_free_blk\n");
 			}
-			spin_unlock(&free_list_lock);
 
 			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
 			pid_swap_map->used_page = 1;
