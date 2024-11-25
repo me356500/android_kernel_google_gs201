@@ -52,6 +52,8 @@ struct pid_swap_map_node // ycc add
 	int pid;
 	unsigned used_page;
 	unsigned offest;
+	unsigned migrate_used_page;
+	unsigned migrate_offset;
 
 	struct hlist_node hash;
 };
@@ -1156,7 +1158,7 @@ static void swap_compaction(struct swap_info_struct *si, unsigned long type) {
 
 static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 			       unsigned char usage, int nr,
-			       swp_entry_t slots[], struct vm_area_struct *vma) // ycc flash swap alloc
+			       swp_entry_t slots[], struct vm_area_struct *vma, int flag_migrate) // ycc flash swap alloc
 {
 	struct swap_cluster_info *ci;
 	unsigned long offset;
@@ -1240,8 +1242,16 @@ pid_to_hash:
 			// wyc assign free blk
 			if (!list_empty(&free_blk_list)) {
 				spin_lock(&free_list_lock);
+				// write block
 				cur_free_node = list_first_entry(&free_blk_list, struct free_swap_map_node, list);
 				swap_alloc_free_offset = (cur_free_node->block_id * 256) + 1;
+				list_del(&cur_free_node->list);
+				kfree(cur_free_node);
+				--free_blk_cnt;
+				// migrate block
+				cur_free_node = list_first_entry(&free_blk_list, struct free_swap_map_node, list);
+				pid_swap_map->migrate_offset = (cur_free_node->block_id * 256) + 1;
+				pid_swap_map->migrate_used_page = 1;
 				list_del(&cur_free_node->list);
 				kfree(cur_free_node);
 				--free_blk_cnt;
@@ -1260,7 +1270,7 @@ pid_to_hash:
 			if (swap_alloc_free_offset % (1024 * 1024 / 4) <= 255)
 				printk("ycc new_swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid NULL %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
-		} else if (pid_swap_map->used_page >= 256) {
+		} else if ((!flag_migrate && pid_swap_map->used_page >= 256) || (flag_migrate && pid_swap_map->migrate_used_page >= 256)) {
 			// wyc assign free blk
 			if (!list_empty(&free_blk_list)) {
 				spin_lock(&free_list_lock);
@@ -1275,8 +1285,18 @@ pid_to_hash:
 				printk(KERN_ERR "wyc no_free_blk\n");
 			}
 
-			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
-			pid_swap_map->used_page = 1;
+			offset = scan_base = swap_alloc_free_offset;
+
+			// hot / cold separation
+			if (flag_migrate) {
+				pid_swap_map->migrate_offset = offset;
+				pid_swap_map->migrate_used_page = 1;
+			}
+			else {
+				pid_swap_map->offest = offset;
+				pid_swap_map->used_page = 1;
+			}
+			
 			swap_alloc_free_offset += 256;
 			used_page = pid_swap_map->used_page; //debug
 			start_offset = offset;
@@ -1284,9 +1304,16 @@ pid_to_hash:
 				printk("ycc 256_swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid find %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else {
-			offset = pid_swap_map->offest + pid_swap_map->used_page;
-			scan_base = pid_swap_map->offest;
-			pid_swap_map->used_page++;
+			if (flag_migrate) {
+				offset = pid_swap_map->migrate_offset + pid_swap_map->migrate_used_page;
+				scan_base = pid_swap_map->migrate_offset;
+				pid_swap_map->migrate_used_page++;
+			}
+			else {
+				offset = pid_swap_map->offest + pid_swap_map->used_page;
+				scan_base = pid_swap_map->offest;
+				pid_swap_map->used_page++;
+			}
 			used_page = pid_swap_map->used_page; //debug
 			start_offset = offset;
 			// printk("ycc pid find offset %d used_page %d pid %d next_start %d highest bit %d", pid_swap_map->offest,
@@ -1524,7 +1551,12 @@ scan_swap_alloc:
 	if (page_pid != -1)
 	{
 		spin_lock(&swap_alloc_lock);
-		pid_swap_map->used_page = 1024;
+		if (flag_migrate) {
+			pid_swap_map->migrate_used_page = 1024;
+		}
+		else {
+			pid_swap_map->used_page = 1024;
+		}
 		spin_unlock(&swap_alloc_lock);
 	}
 	goto pid_to_hash;
@@ -1707,7 +1739,7 @@ start_over:
 					comp_page += n_goal;
 
 				n_ret = swap_alloc_scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal,
-								       swp_entries, vma);
+								       swp_entries, vma, Flag_compaction);
 
 			} 
 				
