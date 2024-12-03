@@ -78,6 +78,7 @@ static unsigned swap_alloc_free_offset = 1;
 // wyc add
 static DEFINE_SPINLOCK(free_list_lock);
 static DEFINE_SPINLOCK(swap_block_pid_lock);
+//static DEFINE_SPINLOCK(swap_block_inuse_lock);
 struct free_swap_map_node
 {
 	struct list_head list;
@@ -86,6 +87,7 @@ struct free_swap_map_node
 LIST_HEAD(free_blk_list);
 static unsigned int free_blk_cnt = 0;
 static unsigned int swap_block_pid[8192] = {0};
+//static unsigned int swap_block_inuse[4096] = {0};
 static int first_full = 0;
 static int free_list_init = 0;
 #endif
@@ -1172,14 +1174,14 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	// wyc add
 	unsigned long block_id = 0, victim_id = 0;
 	unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
-
+	unsigned long pre_offset = 0, pre_block_id = 0;
 	bool flag_free_slot = 0;
 	// bool skip_app_hole = 0;
 	struct free_swap_map_node *cur_free_node;
 
 	// wyc init free offset list
-	spin_lock(&free_list_lock);
 	if (!first_full && list_empty(&free_blk_list) && !free_list_init) {
+		spin_lock(&free_list_lock);
 		for (block_id = 0; block_id < flash_swap_block - 10; block_id++) {
 			struct free_swap_map_node *node = (struct free_swap_map_node *)kmalloc(sizeof(*node), GFP_KERNEL);
 			node->block_id = block_id;
@@ -1188,9 +1190,9 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 			++free_blk_cnt;
 		}
 		free_list_init = 1;
-		printk("wyc branch_same_app_empty_block\n");
+		printk("wyc branch_rob_app_block\n");
+		spin_unlock(&free_list_lock);
 	}
-	spin_unlock(&free_list_lock);
 
 	// ycc add to hash
 	if (vma && vma->vm_mm && vma->vm_mm->owner)
@@ -1238,19 +1240,18 @@ pid_to_hash:
 			pid_swap_map->pid = page_pid;
 			pid_swap_map->pre_offset = 0;
 			// wyc assign free blk
-			spin_lock(&free_list_lock);
 			if (!list_empty(&free_blk_list)) {
+				spin_lock(&free_list_lock);
 				cur_free_node = list_first_entry(&free_blk_list, struct free_swap_map_node, list);
 				swap_alloc_free_offset = (cur_free_node->block_id * 256) + 1;
 				list_del(&cur_free_node->list);
 				kfree(cur_free_node);
 				--free_blk_cnt;
+				spin_unlock(&free_list_lock);
 			}
 			else {
 				printk(KERN_ERR "wyc no_free_blk\n");
 			}
-			spin_unlock(&free_list_lock);
-
 			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
 			pid_swap_map->used_page = 1;
 			hash_add(pid_to_swap_offset_hash, &pid_swap_map->hash, page_pid);
@@ -1261,20 +1262,19 @@ pid_to_hash:
 				printk("ycc new_swap_alloc_used %d", swap_alloc_free_offset);
 			// printk("ycc pid NULL %d next_start %d highest bit %d", page_pid, swap_alloc_free_offset, READ_ONCE(si->highest_bit));
 		} else if (pid_swap_map->used_page >= 256) {
-			// wyc assign free blk
-			spin_lock(&free_list_lock);
+			// wyc assign free blk		
 			if (!list_empty(&free_blk_list)) {
+				spin_lock(&free_list_lock);
 				cur_free_node = list_first_entry(&free_blk_list, struct free_swap_map_node, list);
 				swap_alloc_free_offset = (cur_free_node->block_id * 256) + 1;
 				list_del(&cur_free_node->list);
 				kfree(cur_free_node);
 				--free_blk_cnt;
+				spin_unlock(&free_list_lock);
 			}
 			else {
 				printk(KERN_ERR "wyc no_free_blk\n");
 			}
-			spin_unlock(&free_list_lock);
-
 			offset = scan_base = pid_swap_map->offest = swap_alloc_free_offset;
 			pid_swap_map->used_page = 1;
 			swap_alloc_free_offset += 256;
@@ -1350,7 +1350,6 @@ pid_to_hash:
 checks:
 	// wyc add: find app free hole
 	if (free_list_init && !free_blk_cnt) { // swap full
-		
 		pid_swap_map = get_pid_hash(page_pid);
 		if (pid_swap_map == NULL) {
 			pid_swap_map = (struct pid_swap_map_node *)kmalloc(sizeof(*pid_swap_map),
@@ -1358,11 +1357,14 @@ checks:
 			pid_swap_map->pid = page_pid;
 			pid_swap_map->pre_offset = 0;
 		}
-
+		pre_offset = pid_swap_map->pre_offset;
+		if (pre_offset == 0)
+			pre_offset = 1;
+		pre_block_id = ((pre_offset - 1) / per_app_swap_slot);
 		// scan same app block
-		if (pid_swap_map->pre_offset % 256) {
-			for (block_offset = 1; ((pid_swap_map->pre_offset + block_offset) % 256) != 1; block_offset++) {
-				if (READ_ONCE(si->swap_map[(pid_swap_map->pre_offset + block_offset)]) == 0) {
+		if (pre_offset % 256 && READ_ONCE(swap_block_pid[pre_block_id]) == page_pid) {
+			for (block_offset = 1; ((pre_offset + block_offset) % 256) != 1; block_offset++) {
+				if (READ_ONCE(si->swap_map[(pre_offset + block_offset)]) == 0) {
 					flag_free_slot = 1;
 					break;
 				}
@@ -1370,7 +1372,7 @@ checks:
 		}
 		if (flag_free_slot) {
 			flag_free_slot = 0;
-			offset = scan_base = (pid_swap_map->pre_offset + block_offset);
+			offset = scan_base = (pre_offset + block_offset);
 			++res_page;
 		} 
 		else {
@@ -1379,6 +1381,8 @@ checks:
 
 			for (block_id = 0; block_id < 4085; block_id++) {
 				// check free slot
+				//if (!skip_app_hole && READ_ONCE(swap_block_inuse[block_id]) == 1 && READ_ONCE(swap_block_pid[block_id]) != page_pid)
+					//continue;
 				block_cnt = 0;
 				for (block_offset = 1; block_offset <= 256; block_offset++) {
 					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
@@ -1397,23 +1401,42 @@ checks:
 				}
 			}
 			if (block_offset > 256) {
+				++swp_out_page;
+				/*if (swp_out_page == 100) {
+					for (block_id = 0; block_id < 4085; block_id++) {
+						printk("wyc bid inuse %d: %d\n", block_id, swap_block_inuse[block_id]);
+					}
+				}
+				skip_app_hole = 1;*/
+				//if (swp_out_page % 100 == 0) {
+				//	printk("wyc no swap slot found : %d, blkid, victimcnt : %d, %d\n", swp_out_page, victim_id, victim_cnt);
+				//}
+					
 				goto checks;
 			}
 			else {
 				offset = scan_base = (victim_id * 256) + block_offset;
-				swap_block_pid[victim_id] = page_pid;
+				WRITE_ONCE(swap_block_pid[victim_id], page_pid);
 			}
 			++comp_page;
 		}
 
-		if (pid_swap_map->pre_offset == offset + 1 || pid_swap_map->pre_offset == offset - 1) {
+		if (pre_offset == offset + 1 || pre_offset == offset - 1) {
 			swp_out_adj++;
 		}	
 		else {
 			swp_out_nadj++;
 		}
-		pid_swap_map->pre_offset = offset;
 	}
+
+	/*if (offset % 256 == 0) {
+		WRITE_ONCE(swap_block_inuse[((offset - 1) / per_app_swap_slot)], 0);
+	}
+	else {
+		WRITE_ONCE(swap_block_inuse[((offset - 1) / per_app_swap_slot)], 1);
+	}*/
+	
+	pid_swap_map->pre_offset = offset;
 
 	if (si->cluster_info) {
 		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
@@ -1710,11 +1733,12 @@ start_over:
 				n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal, swp_entries,
 							    vma);
 			else { // ycc flash swap alloc
+				/*
 				if (reswp != 2) {
 					swp_out_page += n_goal;
 				}
 				else 
-					comp_page += n_goal;
+					comp_page += n_goal;*/
 
 				n_ret = swap_alloc_scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal,
 								       swp_entries, vma);
