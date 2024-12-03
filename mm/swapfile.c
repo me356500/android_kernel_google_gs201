@@ -48,12 +48,17 @@
 #define swap_alloc_enable
 
 #ifdef swap_alloc_enable
+
+static DEFINE_SPINLOCK(start_count_lock);
+static bool start_count = false;
+
 // tyc add
 struct pid_to_cluster_node
 {
 	int pid;
     struct swap_cluster_info index; /* Current cluster index */
 	unsigned int next; /* Likely next allocation offset */
+	unsigned long pre_offset; /* Previous allocation offset */
 
 	struct hlist_node hash;
 };
@@ -69,6 +74,7 @@ static struct pid_to_cluster_node *pid_to_cluster_alloc(int pid)
     node->pid = pid;
     node->next = 0;
     node->index = (struct swap_cluster_info){0};
+	node->pre_offset = 0;
     return node;
 }
 
@@ -136,7 +142,7 @@ static pid_t get_page_pid(struct page *page)
         }
     }
 
-    if (vma)
+	if (vma && vma->vm_mm && vma->vm_mm->owner)
         return vma->vm_mm->owner->pid;
     return 66666;
 }
@@ -377,6 +383,22 @@ static void discard_swap_cluster(struct swap_info_struct *si,
 #define swap_entry_size(size)	1
 #endif
 #define LATENCY_LIMIT		256
+
+static inline void cluster_set_inuse(struct swap_cluster_info *info)
+{
+	info->flags |= CLUSTER_FLAG_INUSE;
+}
+
+static inline void cluster_clear_inuse(struct swap_cluster_info *info)
+{
+	info->flags &= ~CLUSTER_FLAG_INUSE;
+}
+
+static inline bool cluster_test_flag(struct swap_cluster_info *info,
+	unsigned int flag)
+{
+	return info->flags & flag;
+}
 
 static inline void cluster_set_flag(struct swap_cluster_info *info,
 	unsigned int flag)
@@ -620,6 +642,7 @@ static void alloc_cluster(struct swap_info_struct *si, unsigned long idx)
 	VM_BUG_ON(cluster_list_first(&si->free_clusters) != idx);
 	cluster_list_del_first(&si->free_clusters, ci);
 	cluster_set_count_flag(ci + idx, 0, 0);
+	cluster_set_inuse(ci + idx);
 }
 
 static void free_cluster(struct swap_info_struct *si, unsigned long idx)
@@ -745,6 +768,7 @@ static bool rob_other_cluster(struct pid_to_cluster_node **node, pid_t pid, stru
 	for (i = 0; i < (si->max / SWAPFILE_CLUSTER); i++) {
 		if (swap_block_pid[i] != 0) {
 			ci = lock_cluster(si, i * SWAPFILE_CLUSTER);
+			// if (!cluster_is_free(ci) && cluster_count(ci) < min && !cluster_test_flag(ci, CLUSTER_FLAG_INUSE)) {
 			if (!cluster_is_free(ci) && cluster_count(ci) < min) {
 				min = cluster_count(ci);
 				victim_index = i;
@@ -806,7 +830,15 @@ new_cluster:
         } else if (get_old_cluster(&node, pid, si)) {
 			count_vm_event(FLASH_SWAP_OLD_CLUSTER);
 		} else if (rob_other_cluster(&node, pid, si)) {
+			if (start_count == false) {
+				spin_lock(&start_count_lock);
+				start_count = true;
+				spin_unlock(&start_count_lock);
+			}
 			count_vm_event(FLASH_SWAP_ROB_CLUSTER);
+			ci = lock_cluster(si, node->next);
+			cluster_set_inuse(ci);
+			unlock_cluster(ci);
 		} else
             return false;
     }
@@ -825,6 +857,9 @@ new_cluster:
         unlock_cluster(ci);
     }
     if (tmp >= max) {
+		ci = lock_cluster(si, node->next);
+		cluster_clear_inuse(ci);
+		unlock_cluster(ci);
         pid_to_cluster_del(node);
         pid_to_cluster_free(node);
         goto new_cluster;
@@ -833,6 +868,15 @@ new_cluster:
     node->next = tmp + 1;
     *offset = tmp;
     *scan_base = tmp;
+
+	if (start_count) {
+		if (node->pre_offset + 1 == tmp || node->pre_offset - 1 == tmp)
+			count_vm_event(FLASH_SWAP_CONTINUED);
+		else
+			count_vm_event(FLASH_SWAP_DISCONTINUED);
+	}
+
+	node->pre_offset = tmp;
     return true;
 }
 #endif

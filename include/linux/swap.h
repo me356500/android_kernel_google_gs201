@@ -222,6 +222,8 @@ struct swap_cluster_info {
 #define CLUSTER_FLAG_FREE 1 /* This cluster is free */
 #define CLUSTER_FLAG_NEXT_NULL 2 /* This cluster has no next cluster */
 #define CLUSTER_FLAG_HUGE 4 /* This cluster is backing a transparent huge page */
+#define CLUSTER_FLAG_INUSE 8 /* This cluster is in use */
+#define CLUSTER_FLAG_COMPACT 16 /* This cluster is being compacted */
 
 /*
  * We assign a cluster to each CPU, so each CPU can allocate swap entry from
