@@ -87,7 +87,7 @@ struct free_swap_map_node
 LIST_HEAD(free_blk_list);
 static unsigned int free_blk_cnt = 0;
 static unsigned int swap_block_pid[8192] = {0};
-//static unsigned int swap_block_inuse[4096] = {0};
+static unsigned int swap_block_inuse[4096] = {0};
 static int first_full = 0;
 static int free_list_init = 0;
 #endif
@@ -1176,7 +1176,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
 	unsigned long pre_offset = 0, pre_block_id = 0;
 	bool flag_free_slot = 0;
-	// bool skip_app_hole = 0;
+	bool skip_app_hole = 0;
 	struct free_swap_map_node *cur_free_node;
 
 	// wyc init free offset list
@@ -1376,13 +1376,16 @@ checks:
 			++res_page;
 		} 
 		else {
+			if (READ_ONCE(swap_block_inuse[pre_block_id]) == 1) {
+				WRITE_ONCE(swap_block_inuse[pre_block_id], 0);
+			}
 			
 			victim_cnt = 0;
 
 			for (block_id = 0; block_id < 4085; block_id++) {
 				// check free slot
-				//if (!skip_app_hole && READ_ONCE(swap_block_inuse[block_id]) == 1 && READ_ONCE(swap_block_pid[block_id]) != page_pid)
-					//continue;
+				if (!skip_app_hole && READ_ONCE(swap_block_inuse[block_id]) == 1)
+					continue;
 				block_cnt = 0;
 				for (block_offset = 1; block_offset <= 256; block_offset++) {
 					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
@@ -1402,12 +1405,12 @@ checks:
 			}
 			if (block_offset > 256) {
 				++swp_out_page;
-				/*if (swp_out_page == 100) {
+				if (swp_out_page == 100) {
 					for (block_id = 0; block_id < 4085; block_id++) {
 						printk("wyc bid inuse %d: %d\n", block_id, swap_block_inuse[block_id]);
 					}
 				}
-				skip_app_hole = 1;*/
+				skip_app_hole = 1;
 				//if (swp_out_page % 100 == 0) {
 				//	printk("wyc no swap slot found : %d, blkid, victimcnt : %d, %d\n", swp_out_page, victim_id, victim_cnt);
 				//}
@@ -1429,14 +1432,15 @@ checks:
 		}
 	}
 
-	/*if (offset % 256 == 0) {
+	// reach end of block
+	if (offset % 256 == 0) {
 		WRITE_ONCE(swap_block_inuse[((offset - 1) / per_app_swap_slot)], 0);
 	}
 	else {
 		WRITE_ONCE(swap_block_inuse[((offset - 1) / per_app_swap_slot)], 1);
-	}*/
+	}
 	
-	pid_swap_map->pre_offset = offset;
+	WRITE_ONCE(pid_swap_map->pre_offset, offset);
 
 	if (si->cluster_info) {
 		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
