@@ -1172,7 +1172,7 @@ static int swap_alloc_scan_swap_map_slots(struct swap_info_struct *si,
 	// wyc add
 	unsigned long block_id = 0, victim_id = 0;
 	unsigned long block_offset = 1, victim_cnt = 0, block_cnt = 0;
-
+	unsigned long backup_offset = 0;
 	bool flag_free_slot = 0;
 	// bool skip_app_hole = 0;
 	struct free_swap_map_node *cur_free_node;
@@ -1375,13 +1375,26 @@ checks:
 			goto find_same_app_hole_done;
 		}
 		
+		for (block_id = 0; block_id < 4085; block_id++) {
+			// check free slot
+			block_cnt = 0;
+			for (block_offset = 1; block_offset <= 256; block_offset++) {
+				if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
+					++block_cnt;
+				}
+				
+			}
+			if (block_cnt >= 256) {
+				swap_block_pid[block_id] = 0;
+			}
+		}
 
 		// find empty same app block
 		victim_cnt = 0;
 
 		for (block_id = 0; block_id < 4085; block_id++) {
 			block_cnt = 0;
-			if (swap_block_pid[block_id] == page_pid) {
+			if (swap_block_pid[block_id] == page_pid || swap_block_pid[block_id] == 0) {
 				// check free slot
 				for (block_offset = 1; block_offset <= 256; block_offset++) {
 					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
@@ -1418,10 +1431,11 @@ checks:
 					if (READ_ONCE(si->swap_map[(block_id * 256) + block_offset]) == 0) {
 						++block_cnt;
 					}
-					if (block_cnt > victim_cnt) {
-						victim_cnt = block_cnt;
-						victim_id = block_id;
-					}
+					
+				}
+				if (block_cnt > victim_cnt) {
+					victim_cnt = block_cnt;
+					victim_id = block_id;
 				}
 			}
 			//
@@ -1435,7 +1449,7 @@ checks:
 			}
 			else {
 				offset = scan_base = (victim_id * 256) + block_offset;
-				swap_block_pid[victim_id] = page_pid;
+				
 			}
 			++comp_page;
 		}
@@ -1448,9 +1462,11 @@ find_same_app_hole_done:
 		else {
 			swp_out_nadj++;
 		}
-		pid_swap_map->pre_offset = offset;
+		
 	}
-
+	pid_swap_map->pre_offset = offset;
+	swap_block_pid[(offset - 1) / per_app_swap_slot] = page_pid;
+	backup_offset = offset;
 	if (si->cluster_info) {
 		while (scan_swap_map_ssd_cluster_conflict(si, offset)) {
 		/* take a break if we already got some slots */
@@ -1461,6 +1477,9 @@ find_same_app_hole_done:
 				goto scan;
 		}
 	}
+	if (backup_offset != offset)
+		++swp_out_page;
+
 	if (!(si->flags & SWP_WRITEOK))
 		goto no_page;
 	if (!si->highest_bit)
@@ -1746,11 +1765,11 @@ start_over:
 				n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal, swp_entries,
 							    vma);
 			else { // ycc flash swap alloc
-				if (reswp != 2) {
-					swp_out_page += n_goal;
-				}
-				else 
-					comp_page += n_goal;
+				//if (reswp != 2) {
+				//	swp_out_page += n_goal;
+				//}
+				//else 
+				//	comp_page += n_goal;
 
 				n_ret = swap_alloc_scan_swap_map_slots(si, SWAP_HAS_CACHE, n_goal,
 								       swp_entries, vma);
