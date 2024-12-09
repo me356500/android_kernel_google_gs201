@@ -21,6 +21,9 @@ static char buf[256] = {0};
 static struct task_struct *rmap_thread;
 static int round = 0;
 
+unsigned long swp_continued = 0, swp_discontinued = 0;
+pid_t pre_pid = 66666;
+
 static bool save_log = false;
 module_param_named(save_log, save_log, bool, 0644);
 
@@ -29,11 +32,112 @@ static inline unsigned char swap_count(unsigned char ent)
 	return ent & ~SWAP_HAS_CACHE;	/* may include COUNT_CONTINUED flag */
 }
 
+struct rmap_arg {
+    unsigned int offset;
+    int count;
+    int cur;
+};
+
 static bool print_vma_pid_address_one(struct page *page, struct vm_area_struct *vma, unsigned long addr, void *arg)
 {
     // get vma owner pid
     struct task_struct *task = vma->vm_mm->owner;
     pid_t pid = task->pid;
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    swp_entry_t entry;
+    unsigned int tmp_offset;
+    unsigned int offset = ((struct rmap_arg *)arg)->offset;
+    int count = ((struct rmap_arg *)arg)->count;
+    int cur = ((struct rmap_arg *)arg)->cur;
+
+    if (cur == count) {
+        return false;
+    }
+
+	pgd = pgd_offset(vma->vm_mm, addr);
+    if (pgd_none_or_clear_bad(pgd)) {
+        return true;
+    }
+    p4d = p4d_offset(pgd, addr);
+    if (p4d_none_or_clear_bad(p4d)) {
+        return true;
+    }
+    pud = pud_offset(p4d, addr);
+    if (pud_none_or_clear_bad(pud)) {
+        return true;
+    }
+    pmd = pmd_offset(pud, addr);
+    if (pmd_none_or_clear_bad(pmd)) {
+        return true;
+    }
+    pte = pte_offset_map(pmd, addr);
+    if (!pte)
+        return true;
+
+    if (!is_swap_pte(*pte))
+        return true;
+
+    entry = pte_to_swp_entry(*pte);
+    tmp_offset = swp_offset(entry);
+
+    if (tmp_offset != offset)
+        return true;
+
+    sprintf(buf, "pid = %d, vma = %p, addr = %lx\n", pid, vma, addr);
+
+    ret = kernel_write(filep, buf, strlen(buf), &pos);
+    if (ret < 0) {
+        printk(KERN_ERR "[tyc] Write to file error\n");
+        return false;
+    }
+
+    ((struct rmap_arg *)arg)->cur++;
+
+    return true;
+}
+
+static bool print_vma_pid_address_shmem_one(struct page *page, struct vm_area_struct *vma, unsigned long addr, void *arg)
+{
+    // get vma owner pid
+    struct task_struct *task = vma->vm_mm->owner;
+    pid_t pid = task->pid;
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+
+	pgd = pgd_offset(vma->vm_mm, addr);
+    if (pgd_none_or_clear_bad(pgd)) {
+        return true;
+    }
+    p4d = p4d_offset(pgd, addr);
+    if (p4d_none_or_clear_bad(p4d)) {
+        return true;
+    }
+    pud = pud_offset(p4d, addr);
+    if (pud_none_or_clear_bad(pud)) {
+        return true;
+    }
+    pmd = pmd_offset(pud, addr);
+    if (pmd_none_or_clear_bad(pmd)) {
+        return true;
+    }
+    pte = pte_offset_map(pmd, addr);
+    if (!pte)
+        return true;
+    
+    if (pre_pid == pid) {
+        swp_continued++;
+    }
+    else {
+        swp_discontinued++;
+    }
+    pre_pid = pid;
 
     sprintf(buf, "pid = %d, vma = %p, addr = %lx\n", pid, vma, addr);
 
@@ -46,18 +150,37 @@ static bool print_vma_pid_address_one(struct page *page, struct vm_area_struct *
     return true;
 }
 
-void print_vma_pid_address(struct swap_info_struct *si, int offset)
+void print_vma_pid_address(struct swap_info_struct *si, struct rmap_arg *arg)
 {
     struct rmap_walk_control rwc = {
-		.rmap_one = print_vma_pid_address_one,
+        .arg = arg
 	};
 
     struct page *page = alloc_page(GFP_KERNEL);
+    unsigned int offset = ((struct rmap_arg *)arg)->offset;
+    int tmp_count;
 
     page->mapping = si->rmap[offset].mapping;
     page->index = si->rmap[offset].index;
 
+    if (!page->mapping) {
+        printk(KERN_ERR "[tyc] offset %u error\n", offset);
+        goto out;
+    }
+
+    tmp_count = swap_count(si->swap_map[offset]);
+
+    if (tmp_count == SWAP_MAP_BAD) {
+        printk(KERN_INFO "[tyc] print_rmap error SWAP_MAP_BAD\n");
+        goto out;
+    } else if (tmp_count == SWAP_MAP_SHMEM) {
+        rwc.rmap_one = print_vma_pid_address_shmem_one;
+    } else {
+        rwc.rmap_one = print_vma_pid_address_one;
+    }
+
 	rmap_walk(page, &rwc);
+out:
     __free_page(page);
 }
 
@@ -78,9 +201,10 @@ static int rmap_thread_func(void *data)
         unsigned int offset;
         swp_entry_t entry;
         int count, tmp_count;
+        struct rmap_arg arg;
 
         pos = 0;
-
+        printk("wyc swp_adj, dis_adj, %d, %d\n", swp_continued, swp_discontinued);
         if (save_log == false)
             goto sleep;
 
@@ -94,25 +218,44 @@ static int rmap_thread_func(void *data)
         }
 
         plist_for_each_entry(si, &swap_active_head, list) {
+            if (!si->type)
+                continue;
             for (offset = 0; offset < si->max; offset++) {
+                if (READ_ONCE(si->swap_map[offset]) == 0)
+                    continue;
+
                 entry = swp_entry(si->type, offset);
                 tmp_count = swap_count(si->swap_map[offset]);
 
-                if (tmp_count != SWAP_MAP_BAD && tmp_count != SWAP_MAP_SHMEM) {
-                    count = swp_swapcount(entry);
-                    if (count == 0)
-                        continue;
-
-                    sprintf(buf, "offset = %x, count = %d\n", offset, count);
+                if (tmp_count == SWAP_MAP_BAD)
+                    continue;
+                
+                if (tmp_count == SWAP_MAP_SHMEM) {
+                    sprintf(buf, "offset = %u, SWAP_MAP_SHMEM\n", offset);
                     ret = kernel_write(filep, buf, strlen(buf), &pos);
                     if (ret < 0) {
                         printk(KERN_ERR "[tyc] Write to file error\n");
                         goto close;
                     }
 
-                    print_vma_pid_address(si, offset);
-                }
+                    arg.offset = offset;
+                } else {
+                    count = swp_swapcount(entry);
+                    if (count == 0)
+                        continue;
 
+                    sprintf(buf, "offset = %u, count = %d, seq_id = %ld\n", offset, count, READ_ONCE(si->rmap[offset].seq_id));
+                    ret = kernel_write(filep, buf, strlen(buf), &pos);
+                    if (ret < 0) {
+                        printk(KERN_ERR "[tyc] Write to file error\n");
+                        goto close;
+                    }
+
+                    arg.offset = offset;
+                    arg.count = count;
+                    arg.cur = 0;
+                }
+                print_vma_pid_address(si, &arg);
             }
         }
 
@@ -155,4 +298,3 @@ module_exit(rmap_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("TSOU YI CHIEH");
 MODULE_DESCRIPTION("Kernel module that prints log every 10 seconds");
-

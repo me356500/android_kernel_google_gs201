@@ -70,6 +70,8 @@ static struct {
 	unsigned long find_total;
 } swap_cache_info;
 
+static atomic_t seq_id = ATOMIC_INIT(0);
+
 unsigned long total_swapcache_pages(void)
 {
 	unsigned int i, j, nr;
@@ -222,7 +224,8 @@ void set_swap_rmap(struct page *page, swp_entry_t entry)
 
 	si->rmap[offset].mapping = page->mapping;
 	si->rmap[offset].index = page->index;
-
+	si->rmap[offset].seq_id = atomic_read(&seq_id);
+	atomic_inc(&seq_id);
 	put_swap_device(si);
 
 	return;

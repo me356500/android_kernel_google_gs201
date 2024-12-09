@@ -242,6 +242,7 @@ struct swap_cluster_list {
 struct swap_rmap {
 	struct address_space *mapping;
 	pgoff_t index;
+	unsigned long seq_id;
 };
 
 /*
