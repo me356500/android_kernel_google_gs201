@@ -656,6 +656,31 @@ static unsigned long swapin_nr_pages(unsigned long offset)
 	return pages;
 }
 
+static struct vm_area_struct *get_swap_vma(struct swap_info_struct *si, unsigned long offset)
+{
+	struct anon_vma *anon_vma;
+	struct address_space *file_mapping;
+	pgoff_t pgoff_start, pgoff_end;
+	struct anon_vma_chain *avc = NULL;
+	struct vm_area_struct *vma = NULL;
+	unsigned long mapping;
+
+	mapping = (unsigned long)si->rmap[offset].mapping;
+	pgoff_start = si->rmap[offset].index;
+	pgoff_end = pgoff_start;
+	if ((mapping & PAGE_MAPPING_FLAGS) == PAGE_MAPPING_ANON) {
+		anon_vma = (void *)(mapping & (~PAGE_MAPPING_FLAGS));
+		avc = anon_vma_interval_tree_iter_first(&anon_vma->rb_root,
+							pgoff_start, pgoff_end);
+		if (avc)
+			vma = avc->vma;
+	} else {
+		file_mapping = (void *)(mapping & (~PAGE_MAPPING_FLAGS));
+		vma = vma_interval_tree_iter_first(&file_mapping->i_mmap, pgoff_start, pgoff_end);
+	}
+
+	return vma;
+}
 /**
  * swap_cluster_readahead - swap in pages in hope we need them soon
  * @entry: swap entry of this memory
@@ -691,6 +716,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	bool do_poll = true, page_allocated;
 	struct vm_area_struct *vma = vmf->vma;
 	unsigned long addr = vmf->address;
+	// add by tyc
+	struct vm_area_struct *vma_tmp = NULL, *vma_cur = NULL;
+
+	if (swp_type(entry) == 1)
+		vma_cur = get_swap_vma(si, entry_offset);
 
 	mask = swapin_nr_pages(offset) - 1;
 	if (!mask)
@@ -721,6 +751,14 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 		if (!page)
 			continue;
 		if (page_allocated) {
+			if (swp_type(entry) == 1) {
+				vma_tmp = get_swap_vma(si, offset);
+				if (offset != entry_offset) {
+					count_vm_event(FLASH_RA);
+					if (vma_cur && vma_tmp && vma_tmp == vma_cur)
+						count_vm_event(FLASH_RA_SAME_VMA);
+				}
+			}
 			swap_readpage(page, false);
 			if (offset != entry_offset) {
 				SetPageReadahead(page);
