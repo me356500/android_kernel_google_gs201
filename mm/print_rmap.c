@@ -207,6 +207,8 @@ static int rmap_thread_func(void *data)
         }
 
         plist_for_each_entry(si, &swap_active_head, list) {
+            if (!si->type)
+                continue;
             for (offset = 0; offset < si->max; offset++) {
                 if (si->swap_map[offset] == 0)
                     continue;
@@ -218,7 +220,7 @@ static int rmap_thread_func(void *data)
                     continue;
                 
                 if (tmp_count == SWAP_MAP_SHMEM) {
-                    sprintf(buf, "offset = %u, SWAP_MAP_SHMEM\n", offset);
+                    sprintf(buf, "offset = %u, SWAP_MAP_SHMEM, seq_id = %ld\n", offset, READ_ONCE(si->rmap[offset].seq_id));
                     ret = kernel_write(filep, buf, strlen(buf), &pos);
                     if (ret < 0) {
                         printk(KERN_ERR "[tyc] Write to file error\n");
@@ -231,7 +233,7 @@ static int rmap_thread_func(void *data)
                     if (count == 0)
                         continue;
 
-                    sprintf(buf, "offset = %u, count = %d\n", offset, count);
+                    sprintf(buf, "offset = %u, count = %d, seq_id = %ld\n", offset, count, READ_ONCE(si->rmap[offset].seq_id));
                     ret = kernel_write(filep, buf, strlen(buf), &pos);
                     if (ret < 0) {
                         printk(KERN_ERR "[tyc] Write to file error\n");

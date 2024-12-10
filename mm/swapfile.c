@@ -857,9 +857,9 @@ new_cluster:
         unlock_cluster(ci);
     }
     if (tmp >= max) {
-		ci = lock_cluster(si, node->next);
-		cluster_clear_inuse(ci);
-		unlock_cluster(ci);
+		//ci = lock_cluster(si, node->next);
+		//cluster_clear_inuse(ci);
+		//unlock_cluster(ci);
         pid_to_cluster_del(node);
         pid_to_cluster_free(node);
         goto new_cluster;
