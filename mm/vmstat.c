@@ -1357,6 +1357,8 @@ const char * const vmstat_text[] = {
 	"flash_swap_rob_cluster",  // add by tyc
 	"flash_swap_continued", // add by tyc
 	"flash_swap_discontinued",  // add by tyc
+	"flash_ra", // add by tyc
+	"flash_ra_same_vma", // add by tyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",
