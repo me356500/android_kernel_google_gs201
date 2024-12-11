@@ -39,6 +39,8 @@
 #include <linux/frontswap.h>
 #include <linux/fs_parser.h>
 #include <linux/mm_inline.h>
+#include <linux/mm_types.h>
+#include <linux/rmap.h>
 
 #include <asm/tlbflush.h> /* for arch/microblaze update_mmu_cache() */
 
@@ -1364,6 +1366,25 @@ int shmem_unuse(unsigned int type, bool frontswap,
 	return error;
 }
 
+// add by tyc
+static void set_swap_rmap(struct address_space *mapping, pgoff_t index, swp_entry_t entry)
+{
+	struct swap_info_struct *si = get_swap_device(entry);
+	unsigned long offset = swp_offset(entry);
+
+	if (!si) {
+		printk(KERN_INFO "[tyc] set_swap_rmap: get_swap_device failed\n");
+		return;
+	}
+
+	si->rmap[offset].mapping = mapping;
+	si->rmap[offset].index = index;
+
+	put_swap_device(si);
+
+	return;
+}
+
 /*
  * Move the page from the page cache to the swap cache.
  */
@@ -1433,6 +1454,8 @@ static int shmem_writepage(struct page *page, struct writeback_control *wbc)
 	swap = get_swap_page(page);
 	if (!swap.val)
 		goto redirty;
+	// add by tyc
+	set_swap_rmap(mapping, index, swap);
 
 	/*
 	 * Add inode to shmem_unuse()'s list of swapped-out inodes,
