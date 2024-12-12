@@ -62,7 +62,7 @@ CONFIG_CP15_BARRIER_EMULATION=y
 CONFIG_SETEND_EMULATION=y
 CONFIG_RANDOMIZE_BASE=y
 # CONFIG_RANDOMIZE_MODULE_REGION_FULL is not set
-CONFIG_CMDLINE="stack_depot_disable=on kasan.stacktrace=off kvm-arm.mode=protected cgroup_disable=pressure cgroup.memory=nokmem"
+CONFIG_CMDLINE="stack_depot_disable=on kasan.stacktrace=off kvm-arm.mode=protected cgroup_disable=pressure cgroup.memory=nokmem cgroup_enable=memory swapaccount=1"
 CONFIG_CMDLINE_EXTEND=y
 # CONFIG_DMI is not set
 CONFIG_PM_WAKELOCKS=y
@@ -875,7 +875,24 @@ CONFIG_USB_XHCI_EXYNOS=m
 CONFIG_VIDEO_EXYNOS_MFC=m
 CONFIG_VIDEO_EXYNOS_SMFC=m
 CONFIG_ZCOMP_EH=m
+# zram in kernel
 CONFIG_ZRAM=m
 CONFIG_ZRAM_WRITEBACK=y
+# zram in kernel
 CONFIG_ZSMALLOC=m
 CONFIG_PIXEL_METRICS=m
+CONFIG_MEMCG_SWAP=y
+CONFIG_MEMCG_SWAP_ENABLED=y
+CONFIG_DEBUG_FS=y
+# used for zswap
+# CONFIG_FRONTSWAP=y 
+# CONFIG_ZSWAP=y
+# CONFIG_ZSWAP_DEFAULT_ON=y
+# CONFIG_CRYPTO=y
+# CONFIG_ZSWAP_COMPRESSOR_DEFAULT_LZ4=y
+# idle page
+CONFIG_ZRAM_MEMORY_TRACKING=y
+CONFIG_ZSMALLOC_STAT=y
+CONFIG_BFQ_CGROUP_DEBUG=y
+CONFIG_IDLE_PAGE_TRACKING=y
+CONFIG_PAGE_IDLE_FLAG=y

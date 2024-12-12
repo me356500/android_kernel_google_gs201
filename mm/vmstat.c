@@ -1359,6 +1359,7 @@ const char * const vmstat_text[] = {
 	"flash_swap_discontinued",  // add by tyc
 	"flash_ra", // add by tyc
 	"flash_ra_same_vma", // add by tyc
+	"flash_ra_same_vma_hit", // add by wyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",

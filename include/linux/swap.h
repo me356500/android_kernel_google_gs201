@@ -30,7 +30,7 @@ struct pagevec;
 #define SWAP_FLAGS_VALID	(SWAP_FLAG_PRIO_MASK | SWAP_FLAG_PREFER | \
 				 SWAP_FLAG_DISCARD | SWAP_FLAG_DISCARD_ONCE | \
 				 SWAP_FLAG_DISCARD_PAGES)
-#define SWAP_BATCH 64
+#define SWAP_BATCH 256
 
 static inline int current_is_kswapd(void)
 {
@@ -331,7 +331,7 @@ struct vma_swap_readahead {
 /* linux/mm/workingset.c */
 void workingset_age_nonresident(struct lruvec *lruvec, unsigned long nr_pages);
 void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg);
-void workingset_refault(struct page *page, void *shadow);
+int workingset_refault(struct page *page, void *shadow, unsigned skip_cnt);  // ycc modify
 void workingset_activation(struct page *page);
 
 /* Only track the nodes of mappings with shadow entries */
@@ -438,6 +438,8 @@ extern struct address_space *swapper_spaces[];
 	(&swapper_spaces[swp_type(entry)][swp_offset(entry) \
 		>> SWAP_ADDRESS_SPACE_SHIFT])
 extern unsigned long total_swapcache_pages(void);
+extern unsigned long check_hybird_swap(void); // ycc modify, hybird swap
+extern unsigned long get_zram_usage(void); // ycc modify
 extern void show_swap_cache_info(void);
 extern int add_to_swap(struct page *page);
 extern void *get_shadow_from_swap_cache(swp_entry_t entry);
@@ -452,18 +454,18 @@ extern void free_page_and_swap_cache(struct page *);
 extern void free_pages_and_swap_cache(struct page **, int);
 extern struct page *lookup_swap_cache(swp_entry_t entry,
 				      struct vm_area_struct *vma,
-				      unsigned long addr);
+				      unsigned long addr, unsigned dev_flag);
 struct page *find_get_incore_page(struct address_space *mapping, pgoff_t index);
 extern struct page *read_swap_cache_async(swp_entry_t, gfp_t,
 			struct vm_area_struct *vma, unsigned long addr,
-			bool do_poll);
+			bool do_poll, unsigned skip_cnt);
 extern struct page *__read_swap_cache_async(swp_entry_t, gfp_t,
 			struct vm_area_struct *vma, unsigned long addr,
-			bool *new_page_allocated);
+			bool *new_page_allocated, unsigned skip_cnt);
 extern struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t flag,
-				struct vm_fault *vmf);
+				struct vm_fault *vmf, unsigned skip_cnt);
 extern struct page *swapin_readahead(swp_entry_t entry, gfp_t flag,
-				struct vm_fault *vmf);
+				struct vm_fault *vmf, unsigned skip_cnt);
 
 /* linux/mm/swapfile.c */
 extern atomic_long_t nr_swap_pages;
@@ -486,7 +488,7 @@ extern void si_swapinfo(struct sysinfo *);
 extern swp_entry_t get_swap_page(struct page *page);
 extern void put_swap_page(struct page *page, swp_entry_t entry);
 extern swp_entry_t get_swap_page_of_type(int);
-extern int get_swap_pages(int n, swp_entry_t swp_entries[], int entry_size, struct page *page);
+extern int get_swap_pages(int n, swp_entry_t swp_entries[], int entry_size, int reswp, struct page *page); // ycc modify
 extern int add_swap_count_continuation(swp_entry_t, gfp_t);
 extern void swap_shmem_alloc(swp_entry_t);
 extern int swap_duplicate(swp_entry_t);
@@ -495,6 +497,9 @@ extern void swap_free(swp_entry_t);
 extern void swapcache_free_entries(swp_entry_t *entries, int n);
 extern int free_swap_and_cache(swp_entry_t);
 int swap_type_of(dev_t device, sector_t offset);
+// add by tyc
+int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
+		unsigned long addr, swp_entry_t entry, struct page *page);
 int find_first_swap(dev_t *device);
 extern unsigned int count_swap_pages(int, int);
 extern sector_t map_swap_page(struct page *, struct block_device **);
@@ -575,13 +580,13 @@ static inline void put_swap_page(struct page *page, swp_entry_t swp)
 }
 
 static inline struct page *swap_cluster_readahead(swp_entry_t entry,
-				gfp_t gfp_mask, struct vm_fault *vmf)
+				gfp_t gfp_mask, struct vm_fault *vmf, , unsigned skip_cnt)
 {
 	return NULL;
 }
 
 static inline struct page *swapin_readahead(swp_entry_t swp, gfp_t gfp_mask,
-			struct vm_fault *vmf)
+			struct vm_fault *vmf, unsigned skip_cnt)
 {
 	return NULL;
 }
@@ -593,7 +598,7 @@ static inline int swap_writepage(struct page *p, struct writeback_control *wbc)
 
 static inline struct page *lookup_swap_cache(swp_entry_t swp,
 					     struct vm_area_struct *vma,
-					     unsigned long addr)
+					     unsigned long addr, unsigned dev_flag)
 {
 	return NULL;
 }

@@ -1131,6 +1131,9 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 	LIST_HEAD(free_pages);
 	unsigned int nr_reclaimed = 0;
 	unsigned int pgactivate = 0;
+	// ycc modify
+	unsigned int nr_anon_refault, nr_anon;
+	nr_anon_refault = nr_anon = 0;
 
 	memset(stat, 0, sizeof(*stat));
 	cond_resched();
@@ -1327,6 +1330,11 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 						goto activate_locked_split;
 				}
 
+				// ycc modify
+				nr_anon++;
+				if(!PageReswapin(page))
+					nr_anon_refault++;
+				
 				may_enter_fs = true;
 
 				/* Adding to swap updated mapping */

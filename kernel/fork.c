@@ -1082,6 +1082,9 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm_init_owner(mm, p);
 	mm_init_pasid(mm);
 	RCU_INIT_POINTER(mm->exe_file, NULL);
+	// ycc modify
+	mm->nr_anon_refault = 0;
+	mm->nr_anon_fault = 1;
 	if (!mmu_notifier_subscriptions_init(mm))
 		goto fail_nopgd;
 	init_tlb_flush_pending(mm);

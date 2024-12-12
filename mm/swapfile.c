@@ -45,7 +45,7 @@
 #include <linux/swap_cgroup.h>
 
 #include <linux/rmap.h> // tyc add
-#define swap_alloc_enable
+#include <linux/hyswp_migrate.h> // ycc add
 
 #ifdef swap_alloc_enable
 
@@ -1558,13 +1558,14 @@ static unsigned long scan_swap_map(struct swap_info_struct *si,
 
 }
 
-int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, struct page *page)
+int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size, int reswp, struct page *page)
 {
 	unsigned long size = swap_entry_size(entry_size);
 	struct swap_info_struct *si, *next;
 	long avail_pgs;
 	int n_ret = 0;
 	int node;
+	int NotDegrade = reswp;
 
 	/* Only single cluster request supported */
 	WARN_ON_ONCE(n_goal > 1 && size == SWAPFILE_CLUSTER);
@@ -1587,6 +1588,14 @@ start_over:
 		/* requeue si to after same-priority siblings */
 		plist_requeue(&si->avail_lists[node], &swap_avail_heads[node]);
 		spin_unlock(&swap_avail_lock);
+		// ycc modify
+		if(plist_node_empty(&si->avail_lists[node])||plist_node_empty(&next->avail_lists[node])){
+			NotDegrade=1;
+		}
+		if(!plist_node_empty(&next->avail_lists[node])&&!NotDegrade&&!si->type){
+			spin_lock(&swap_avail_lock);
+			goto nextsi;
+		}
 		spin_lock(&si->lock);
 		if (!si->highest_bit || !(si->flags & SWP_WRITEOK)) {
 			spin_lock(&swap_avail_lock);
@@ -1627,6 +1636,8 @@ start_over:
 
 		spin_lock(&swap_avail_lock);
 nextsi:
+		// ycc modify
+		NotDegrade=1;
 		/*
 		 * if we got here, it's likely that si was almost full before,
 		 * and since scan_swap_map() can drop the si->lock, multiple
@@ -2431,7 +2442,7 @@ static inline int pte_same_as_swp(pte_t pte, pte_t swp_pte)
  * just let do_wp_page work it out if a write is requested later - to
  * force COW, vm_page_prot omits write permission from any private vma.
  */
-static int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
+int unuse_pte(struct vm_area_struct *vma, pmd_t *pmd,
 		unsigned long addr, swp_entry_t entry, struct page *page)
 {
 	struct page *swapcache;
@@ -2500,7 +2511,7 @@ static int unuse_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 
 		pte_unmap(pte);
 		swap_map = &si->swap_map[offset];
-		page = lookup_swap_cache(entry, vma, addr);
+		page = lookup_swap_cache(entry, vma, addr, 1);
 		if (!page) {
 			struct vm_fault vmf = {
 				.vma = vma,
@@ -2509,7 +2520,7 @@ static int unuse_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 			};
 
 			page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE,
-						&vmf);
+						&vmf, 0);
 		}
 		if (!page) {
 			if (*swap_map == 0 || *swap_map == SWAP_MAP_BAD)

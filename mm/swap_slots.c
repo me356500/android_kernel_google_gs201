@@ -33,6 +33,8 @@
 #include <linux/vmalloc.h>
 #include <linux/mutex.h>
 #include <linux/mm.h>
+#include <linux/hyswp_migrate.h>
+#include <linux/rmap.h>
 
 static DEFINE_PER_CPU(struct swap_slots_cache, swp_slots);
 static bool	swap_slot_cache_active;
@@ -266,7 +268,7 @@ static int refill_swap_slots_cache(struct swap_slots_cache *cache)
 	cache->cur = 0;
 	if (swap_slot_cache_active)
 		cache->nr = get_swap_pages(SWAP_SLOTS_CACHE_SIZE,
-					   cache->slots, 1, NULL);
+					   cache->slots, 1, 1, NULL);
 
 	return cache->nr;
 }
@@ -307,14 +309,86 @@ swp_entry_t get_swap_page(struct page *page)
 {
 	swp_entry_t entry;
 	struct swap_slots_cache *cache;
-	bool disable_swap_slots_cache = true;
+	// ycc add
+	int hySwpCheck;
+	bool disable_swap_slot_cache = true;
+	/*select uid to swap*/
+	struct anon_vma *anon_vma; 
+	struct anon_vma_chain *avc;
+	struct vm_area_struct *vma = NULL;
+	pgoff_t pgoff_start;
+	// zRAM Page Admission module
+	unsigned long page_uid;
+	unsigned int anon_WA_ratio; // ,zram_usage;
+	// int zram_fullness, refault_th;
+	unsigned long anon_size, swap_size;
+	unsigned long large_vma_size = (1UL) << PMD_SHIFT;
+	page_uid = 0;
+	anon_WA_ratio = 99;
+	hySwpCheck = 0;
+	anon_size = swap_size = 0;
 
 	entry.val = 0;
 
 	if (PageTransHuge(page)) {
 		if (IS_ENABLED(CONFIG_THP_SWAP))
-			get_swap_pages(1, &entry, HPAGE_PMD_NR, NULL);
+			get_swap_pages(1, &entry, HPAGE_PMD_NR, 1, page);
 		goto out;
+	}
+
+	// ycc find vma for zRAM Page Admission module
+	anon_vma = page_anon_vma(page);
+	if (anon_vma) {
+		pgoff_start = page_to_pgoff(page);
+		anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start, pgoff_start)
+		{
+			vma = avc->vma;
+			if (vma)
+				break;
+		}
+		if (vma)
+			if (vma->vm_start + large_vma_size > vma->vm_end)
+				vma = NULL;
+	}
+
+	hySwpCheck = check_hybird_swap();
+	if (hySwpCheck) {
+		/* The page is read by Page Migrator -> need to downgrade to flash */
+		if(PageReswapin(page)){
+			ClearPageReswapin(page);
+			get_swap_pages(1, &entry, 1, 0, page);
+			count_vm_event(THP_ZERO_PAGE_ALLOC);
+			goto out;
+		}
+
+		/*select mm_struct to swap*/
+		anon_vma = page_anon_vma(page);
+		if (anon_vma) {
+			pgoff_start = page_to_pgoff(page);
+			anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start,
+						       pgoff_start)
+			{
+				vma = avc->vma;
+				if (vma)
+					break;
+			}
+			if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred) {
+				page_uid = vma->vm_mm->owner->cred->uid.val;
+			}
+			if (vma && vma->vm_mm && vma->vm_mm->nr_anon_fault) {
+				anon_WA_ratio = vma->vm_mm->nr_anon_refault * 100 /
+						vma->vm_mm->nr_anon_fault;
+				anon_size = get_mm_counter(vma->vm_mm, MM_ANONPAGES); // unit : page
+				swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
+			}
+
+			/* Cold app -> downgrade to flash */
+			if (cold_app_identification(anon_WA_ratio, anon_size, swap_size)) {
+				get_swap_pages(1, &entry, 1, 0, page);
+				count_vm_event(THP_ZERO_PAGE_ALLOC);
+				goto out;
+			}
+		}
 	}
 
 	/*
@@ -326,9 +400,11 @@ swp_entry_t get_swap_page(struct page *page)
 	 * The alloc path here does not touch cache->slots_ret
 	 * so cache->free_lock is not taken.
 	 */
-	if (!disable_swap_slots_cache) {
-		cache = raw_cpu_ptr(&swp_slots);
-
+	cache = raw_cpu_ptr(&swp_slots);
+#ifdef swap_alloc_enable
+	disable_swap_slot_cache = true;
+#endif	
+	if (!disable_swap_slot_cache) {
 		if (likely(check_cache_active() && cache->slots)) {
 			mutex_lock(&cache->alloc_lock);
 			if (cache->slots) {
@@ -347,7 +423,7 @@ repeat:
 		}
 	}
 
-	get_swap_pages(1, &entry, 1, page);
+	get_swap_pages(1, &entry, 1, 1, page);
 out:
 	if (mem_cgroup_try_charge_swap(page, entry)) {
 		put_swap_page(page, entry);

@@ -86,6 +86,7 @@
 
 #include "pgalloc-track.h"
 #include "internal.h"
+#include <linux/hyswp_migrate.h> // ycc add
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/pagefault.h>
@@ -3588,6 +3589,14 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	int exclusive = 0;
 	vm_fault_t ret;
 	void *shadow = NULL;
+	// ycc modify
+	unsigned long refault;
+	// unsigned long large_vma_size = (1UL) << PMD_SHIFT;
+	// fault in speed
+	int swap_dev_flag = -1;
+	u64 start_time = ktime_get_ns() / 1000; // 10^-6 sec
+
+	refault = -1;
 
 	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
 		pte_unmap(vmf->pte);
@@ -3625,7 +3634,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
-	page = lookup_swap_cache(entry, vma, vmf->address);
+	page = lookup_swap_cache(entry, vma, vmf->address, 1);
 	swapcache = page;
 
 	if (!page) {
@@ -3657,7 +3666,16 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 				shadow = get_shadow_from_swap_cache(entry);
 				if (shadow)
-					workingset_refault(page, shadow);
+					refault = workingset_refault(page, shadow, 0);// ycc modify
+				// ycc modify
+				if (refault != -1) {
+					if (vma && vma->vm_mm) {
+						if (refault)
+							vma->vm_mm->nr_anon_refault++;
+						// printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+						vma->vm_mm->nr_anon_fault++;
+					}
+				}
 
 				lru_cache_add(page);
 				swap_readpage(page, true);
@@ -3675,7 +3693,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 			goto out;
 		} else {
 			page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE | __GFP_CMA,
-						vmf);
+						vmf, 0);
 			swapcache = page;
 		}
 
@@ -3822,6 +3840,17 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 unlock:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 out:
+	// ycc modify
+	/* anon fault in speed */
+	anon_fault++;
+	anon_fault_lat = anon_fault_lat - start_time + ktime_get_ns() / 1000; // 10^-6 sec
+	if (swap_dev_flag == 0) {
+		anon_zram_lat = anon_zram_lat - start_time + ktime_get_ns() / 1000;
+		anon_zram_lat_cnt++;
+	} else if (swap_dev_flag == 1) {
+		anon_flash_lat = anon_flash_lat - start_time + ktime_get_ns() / 1000;
+		anon_flash_lat_cnt++;
+	}
 	return ret;
 out_nomap:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
@@ -3832,6 +3861,17 @@ out_release:
 	if (page != swapcache && swapcache) {
 		unlock_page(swapcache);
 		put_page(swapcache);
+	}
+	// ycc modify
+	/* anon fault in speed */
+	anon_fault++;
+	anon_fault_lat = anon_fault_lat - start_time + ktime_get_ns() / 1000; // 10^-6 sec
+	if (swap_dev_flag == 0) {
+		anon_zram_lat = anon_zram_lat - start_time + ktime_get_ns() / 1000;
+		anon_zram_lat_cnt++;
+	} else if (swap_dev_flag == 1) {
+		anon_flash_lat = anon_flash_lat - start_time + ktime_get_ns() / 1000;
+		anon_flash_lat_cnt++;
 	}
 	return ret;
 }

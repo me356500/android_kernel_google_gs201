@@ -16,6 +16,7 @@
 #include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
+#include <linux/hyswp_migrate.h> // ycc add
 
 /*
  *		Double CLOCK lists
@@ -379,7 +380,7 @@ void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg)
  * evicted page in the context of the node and the memcg whose memory
  * pressure caused the eviction.
  */
-void workingset_refault(struct page *page, void *shadow)
+int workingset_refault(struct page *page, void *shadow, unsigned skip_cnt)
 {
 	bool file = page_is_file_lru(page);
 	struct mem_cgroup *eviction_memcg;
@@ -393,10 +394,14 @@ void workingset_refault(struct page *page, void *shadow)
 	unsigned long refault;
 	bool workingset;
 	int memcgid;
+	// ycc modify
+	int anon_refault;
+
+	anon_refault = 1;
 
 	if (lru_gen_enabled()) {
 		lru_gen_refault(page, shadow);
-		return;
+		return anon_refault; // ycc modify
 	}
 
 	unpack_shadow(shadow, &memcgid, &pgdat, &eviction, &workingset);
@@ -476,8 +481,25 @@ void workingset_refault(struct page *page, void *shadow)
 						     NR_INACTIVE_ANON);
 		}
 	}
+
+	// ycc modify
+	// printk("ycc refault %u %lu %lu",file,refault_distance,workingset_size);
+	if (!file) {
+		if (refault_distance > workingset_size)
+			anon_refault = 0;
+		else if(!skip_cnt) /* system anon workingset_activate */
+			atomic_long_inc(&anon_wa_refault);
+		
+		if(!skip_cnt) /* system anon workingset_activate */
+			atomic_long_inc(&anon_refault_page);
+	}
+
 	if (refault_distance > workingset_size)
 		goto out;
+	if (skip_cnt) { // zram migration
+		SetPageReswapin(page);
+		goto out;
+	}
 
 	SetPageActive(page);
 	workingset_age_nonresident(lruvec, thp_nr_pages(page));
@@ -494,6 +516,7 @@ void workingset_refault(struct page *page, void *shadow)
 	}
 out:
 	rcu_read_unlock();
+	return anon_refault; // ycc modify add return
 }
 
 /**
