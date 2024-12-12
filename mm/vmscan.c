@@ -73,6 +73,10 @@
 #undef CREATE_TRACE_POINTS
 #include <trace/hooks/mm.h>
 
+#include <linux/list.h>
+#include <linux/list_sort.h>
+
+
 EXPORT_TRACEPOINT_SYMBOL_GPL(mm_vmscan_direct_reclaim_begin);
 EXPORT_TRACEPOINT_SYMBOL_GPL(mm_vmscan_direct_reclaim_end);
 
@@ -1119,6 +1123,65 @@ static void page_check_dirty_writeback(struct page *page,
 }
 
 /*
+static pid_t get_page_pid(struct page *page)
+{
+	struct anon_vma *anon_vma;
+    struct anon_vma_chain *avc;
+	pgoff_t pgoff_start, pgoff_end;
+    struct vm_area_struct *vma = NULL;
+	struct address_space *mapping;
+
+    if (!page)
+        return 66666;
+
+    if (PageAnon(page)) {
+        anon_vma = page_anon_vma(page);
+        if (anon_vma) {
+            pgoff_start = page_to_pgoff(page);
+            pgoff_end = pgoff_start + thp_nr_pages(page) - 1;
+            anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff_start, pgoff_end)
+            {
+                vma = avc->vma;
+                if (vma)
+                    break;
+            }
+        }
+    } else {
+        mapping = page_mapping(page);
+        if (mapping) {
+            pgoff_start = page_to_pgoff(page);
+            pgoff_end = pgoff_start + thp_nr_pages(page) - 1;
+            vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff_start, pgoff_end)
+            {
+                if (vma)
+                    break;
+            }
+        }
+    }
+
+	if (vma && vma->vm_mm && vma->vm_mm->owner)
+        return vma->vm_mm->owner->pid;
+    return 66666;
+}*/
+
+int compare_page_address(void *priv, const struct list_head *a, const struct list_head *b) {
+    struct page *page_a = list_entry(a, struct page, lru);
+    struct page *page_b = list_entry(b, struct page, lru);
+
+	unsigned long addr_a = (unsigned long)page_address(page_a);
+	unsigned long addr_b = (unsigned long)page_address(page_b);
+
+    if (addr_a < addr_b)
+		return -1;
+
+    else if (addr_a > addr_b)
+		return 1;
+
+    else
+        return 0;
+}
+
+/*
  * shrink_page_list() returns the number of reclaimed pages
  */
 static unsigned int shrink_page_list(struct list_head *page_list,
@@ -1131,9 +1194,25 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 	LIST_HEAD(free_pages);
 	unsigned int nr_reclaimed = 0;
 	unsigned int pgactivate = 0;
-
+	//struct list_head *cur;
 	memset(stat, 0, sizeof(*stat));
 	cond_resched();
+
+	/*list_for_each(cur, page_list) {
+		struct page *page = list_entry(cur, struct page, lru);
+		unsigned long addr = (unsigned long)page_address(page);
+		pr_info("wyc page address: %lx, pid : %d\n", addr, get_page_pid(page));
+	}*/
+
+	/*reorder page list*/
+	list_sort(NULL, page_list, compare_page_address);
+
+	/*list_for_each(cur, page_list) {
+		struct page *page = list_entry(cur, struct page, lru);
+		unsigned long addr = (unsigned long)page_address(page);
+		pr_info("wyc sort address: %lx, pid : %d\n", addr, get_page_pid(page));
+	}*/
+	
 
 	while (!list_empty(page_list)) {
 		struct address_space *mapping;
@@ -1144,7 +1223,9 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		cond_resched();
 
-		page = lru_to_page(page_list);
+		// wyc modify
+		page = list_first_entry(page_list, struct page, lru);
+		//page = lru_to_page(page_list);
 		list_del(&page->lru);
 
 		if (!trylock_page(page))
