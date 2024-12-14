@@ -4,7 +4,7 @@
 /* swap alloc */
 /* enable Flash Swap Alloaction Module and App-Base Prefetch policy */
 #define swap_alloc_enable
-//#define swap_alloc_swap_ra_enable
+#define swap_alloc_swap_ra_enable
 /* hybrid swap */
 extern int hyswp_scan_sec;
 extern volatile int zram_usage;
@@ -39,6 +39,7 @@ extern void put_app_lifetime_swap_in(int uid, bool long_lifetime);
 #ifdef swap_alloc_swap_ra_enable
 /* app-based swap readahead*/
 extern unsigned get_app_ra_window(int app_uid, int app_pid);
+extern unsigned get_app_same_vma_window(int app_uid, int app_pid);
 #endif
 
 /* statistic */
@@ -83,4 +84,6 @@ extern unsigned long long swp_out_page;
 
 extern bool fixed_prefetch;
 extern unsigned prefetch_window_size;
+extern bool per_app_vma_prefetch;
+extern bool per_app_ra_prefetch;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

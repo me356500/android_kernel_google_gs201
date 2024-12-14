@@ -40,12 +40,16 @@ unsigned per_app_swap_slot = 256;
 unsigned COMP_THRESHOLD = 50;
 bool fixed_prefetch = 0;
 unsigned prefetch_window_size = 8;
+bool per_app_vma_prefetch = 0;
+bool per_app_ra_prefetch = 0;
 
 module_param_named(flash_swap_block, flash_swap_block, uint, 0644);
 module_param_named(per_app_swap_slot, per_app_swap_slot, uint, 0644);
 module_param_named(COMP_THRESHOLD, COMP_THRESHOLD, uint, 0644);
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
+module_param_named(per_app_vma_prefetch, per_app_vma_prefetch, bool, 0644);
+module_param_named(per_app_ra_prefetch, per_app_ra_prefetch, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -164,10 +168,10 @@ unsigned long per_app_swap_distribution
 
 /* app-based swap readahead*/
 #define total_proc_slot 10000
-atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot],
-	app_ra_window[total_app_slot];
-atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot],
-	proc_ra_window[total_proc_slot];
+atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot], app_ra_window[total_app_slot], 
+	app_ra_vma[total_app_slot], app_ra_vma_hit[total_app_slot], app_ra_vma_window[total_app_slot];
+atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_ra_window[total_proc_slot],
+	proc_ra_vma[total_proc_slot], proc_ra_vma_hit[total_proc_slot], proc_ra_vma_window[total_proc_slot];
 
 #ifdef swap_alloc_swap_ra_enable
 /* app-based swap readahead*/
@@ -233,6 +237,82 @@ unsigned get_app_ra_window(int app_uid, int app_pid)
 }
 #endif
 
+void set_vma_window(void)
+{
+	int i, ra_page, hit_page, ra_window;
+	if (scan_round % 2 == 0) {
+		for (i = 0; i < total_app_slot; i++) {
+			ra_page = atomic_long_read(&app_ra_vma[i]);
+			hit_page = atomic_long_read(&app_ra_vma_hit[i]);
+			ra_window = atomic_long_read(&app_ra_vma_window[i]);
+			if (ra_page > 1000) {
+				unsigned hit_rate = hit_page * 100 / ra_page;
+				atomic_long_set(&app_ra_vma[i], ra_page / 2);
+				atomic_long_set(&app_ra_vma_hit[i], hit_page / 2);
+				if (ra_window <= 16 && ra_window >= 2) {
+					if (hit_rate > 50)
+						ra_window = min(10, ra_window + 1);
+					else if (hit_rate < 30)
+						ra_window = max(2, ra_window - 1);
+					else
+						continue;
+					atomic_long_set(&app_ra_vma_window[i], ra_window);
+				}
+			}
+		}
+
+		for (i = 0; i < total_proc_slot; i++) {
+			ra_page = atomic_long_read(&proc_ra_vma[i]);
+			hit_page = atomic_long_read(&proc_ra_vma_hit[i]);
+			ra_window = atomic_long_read(&proc_ra_vma_window[i]);
+			if (ra_page > 1000) {
+				unsigned hit_rate = hit_page * 100 / ra_page;
+				atomic_long_set(&proc_ra_vma[i], ra_page / 2);
+				atomic_long_set(&proc_ra_vma_hit[i], hit_page / 2);
+				if (ra_window <= 16 && ra_window >= 2) {
+					if (hit_rate > 50)
+						ra_window = min(10, ra_window + 1);
+					else if (hit_rate < 30)
+						ra_window = max(2, ra_window - 1);
+					else
+						continue;
+					atomic_long_set(&proc_ra_vma_window[i], ra_window);
+				}
+			}
+		}
+	}
+}
+
+unsigned get_app_same_vma_window(int app_uid, int app_pid)
+{
+	unsigned vma_window = 1;
+	if (app_uid >= 10220 && app_uid < 10245) {
+		int slot = app_uid % total_app_slot;
+		vma_window = atomic_long_read(&app_ra_vma_window[slot]);
+		return vma_window;
+	}
+	if (app_pid >= 0 && app_pid < total_proc_slot) {
+		vma_window = atomic_long_read(&proc_ra_vma_window[app_pid]);
+		return vma_window;
+	}
+	return vma_window;
+}
+
+unsigned get_app_ra_vma_window(int app_uid, int app_pid)
+{
+	unsigned ra_window = 1;
+	if (app_uid >= 10220 && app_uid < 10245) {
+		int slot = app_uid % total_app_slot;
+		ra_window = atomic_long_read(&app_ra_window[slot]);
+		return ra_window;
+	}
+	if (app_pid >= 0 && app_pid < total_proc_slot) {
+		ra_window = atomic_long_read(&proc_ra_window[app_pid]);
+		return ra_window;
+	}
+	return ra_window;
+}
+
 void put_app_swap_in_pattern(int page_uid, unsigned si_type)
 {
 	if (page_uid >= 10220 && page_uid < 10245) {
@@ -282,12 +362,20 @@ void put_swap_ra_count(int app_uid, int app_pid, int ra_hit_flag, int swap_type)
 			atomic_long_inc(&app_ra_hit[slot]);
 		else if (ra_hit_flag == 0)
 			atomic_long_inc(&app_ra_page[slot]);
+		else if (ra_hit_flag == 2)
+			atomic_long_inc(&app_ra_vma[slot]);
+		else if (ra_hit_flag == 3)
+			atomic_long_inc(&app_ra_vma_hit[slot]);
 	}
 	if (app_pid >= 0 && app_pid < total_proc_slot) {
 		if (ra_hit_flag == 1)
 			atomic_long_inc(&proc_ra_hit[app_pid]);
 		else if (ra_hit_flag == 0)
 			atomic_long_inc(&proc_ra_page[app_pid]);
+		else if (ra_hit_flag == 2)
+			atomic_long_inc(&proc_ra_vma[app_pid]);
+		else if (ra_hit_flag == 3)
+			atomic_long_inc(&proc_ra_vma_hit[app_pid]);
 	}
 }
 
@@ -1083,6 +1171,51 @@ void print_swap_ra_log(void)
 	}
 	printk("ycc hyswp_info, scan_round,%d, %s", scan_round, msg);
 #endif
+	/* app-based swap readahead*/
+	/* section 4-d: each app prefetch window size */
+	sprintf(msg, "adaptive_app_ra_window");
+	for (i = 20; i < total_app_slot; i++) {
+		int ra_window = atomic_long_read(&app_ra_window[i]);
+		sprintf(msg, "%s, %u", msg, ra_window);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	// unused
+	sprintf(msg, "app_ra_hit");
+	for (i = 20; i < total_app_slot; i++) {
+		int hit_page = atomic_long_read(&app_ra_hit[i]);
+		sprintf(msg, "%s, %u", msg, hit_page);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	// unused
+	sprintf(msg, "app_ra_page");
+	for (i = 20; i < total_app_slot; i++) {
+		int ra_page = atomic_long_read(&app_ra_page[i]);
+		sprintf(msg, "%s, %u", msg, ra_page);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	/* section 4-d: each app prefetch window size */
+	sprintf(msg, "adaptive_app_ra_vma_window");
+	for (i = 20; i < total_app_slot; i++) {
+		int ra_window = atomic_long_read(&app_ra_vma_window[i]);
+		sprintf(msg, "%s, %u", msg, ra_window);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	// unused
+	sprintf(msg, "app_ra_vma_hit");
+	for (i = 20; i < total_app_slot; i++) {
+		int hit_page = atomic_long_read(&app_ra_vma_hit[i]);
+		sprintf(msg, "%s, %u", msg, hit_page);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	// unused
+	sprintf(msg, "app_ra_vma");
+	for (i = 20; i < total_app_slot; i++) {
+		int ra_page = atomic_long_read(&app_ra_vma[i]);
+		sprintf(msg, "%s, %u", msg, ra_page);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
 	/* app swap cache hit and ra */
 	spin_lock(&distribution_lock);
 	sprintf(msg, "app_swap_ra_hit");
@@ -1317,6 +1450,9 @@ static int hyswp_migrate(void *p)
 		atomic_long_set(&app_ra_page[i], 1);
 		atomic_long_set(&app_ra_hit[i], 0);
 		atomic_long_set(&app_ra_window[i], 4);
+		atomic_long_set(&app_ra_vma[i], 1);
+		atomic_long_set(&app_ra_vma_hit[i], 0);
+		atomic_long_set(&app_ra_vma_window[i], 4);
 		/* app swap in pattern */
 		atomic_long_set(&app_swap_in_zram[i], 0);
 		atomic_long_set(&app_swap_in_flash[i], 0);
@@ -1326,6 +1462,9 @@ static int hyswp_migrate(void *p)
 		atomic_long_set(&proc_ra_page[i], 1);
 		atomic_long_set(&proc_ra_hit[i], 0);
 		atomic_long_set(&proc_ra_window[i], 4);
+		atomic_long_set(&proc_ra_vma[i], 1);
+		atomic_long_set(&proc_ra_vma_hit[i], 0);
+		atomic_long_set(&proc_ra_vma_window[i], 4);
 	}
 
 	for (j = 0; j < 20; j++) {
@@ -1389,6 +1528,9 @@ static int hyswp_migrate(void *p)
 		/* app-based swap readahead*/
 		set_app_ra_window();
 #endif
+		// wyc add
+		//set_app_ra_vma_window();
+		set_vma_window();
 
 		show_info(); // print log
 		schedule_timeout_interruptible(scan_secs * HZ);

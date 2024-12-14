@@ -837,6 +837,10 @@ static struct vm_area_struct *get_swap_vma(struct swap_info_struct *si, unsigned
 	struct vm_area_struct *vma = NULL;
 	unsigned long mapping;
 
+	if (!si->swap_map[offset] || si->swap_map[offset] == SWAP_MAP_BAD) {
+		return vma;
+	}
+
 	mapping = (unsigned long)si->rmap[offset].mapping;
 	pgoff_start = si->rmap[offset].index;
 	pgoff_end = pgoff_start;
@@ -897,6 +901,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned ra_window_size = 0, ra_flag = 0;
 	unsigned actual_ra_read = 0, io_count = 0;
 
+	// add by wyc
+	unsigned same_vma_cnt = 0, same_vma_window = 0, same_vma_tmp = 0;
+	unsigned long window_limit = 16 - 1;
+
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
@@ -909,6 +917,15 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	mask = swapin_nr_pages(offset) - 1;
 	if (fixed_prefetch == 1) {
 		mask = prefetch_window_size - 1;
+	}
+
+	if (per_app_ra_prefetch) {
+		mask = get_app_ra_window(page_uid, page_pid) - 1;
+	}
+
+	if (per_app_vma_prefetch) {
+		mask = get_app_ra_window(page_uid, page_pid) - 1;
+		same_vma_window = get_app_same_vma_window(page_uid, page_pid);
 	}
 
 	skipra = 0;
@@ -947,6 +964,31 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		start_offset++;
 	if (end_offset >= si->max)
 		end_offset = si->max - 1;
+
+	/* adjust vma readahead */
+	if (per_app_vma_prefetch && mask != 15 && swp_type(entry) == 1) {
+		for (offset = start_offset; offset <= end_offset && offset < si->max ; offset++) {
+			vma_tmp = get_swap_vma(si, offset);
+			if (vma_tmp == vma_cur)
+				same_vma_cnt++;
+		}
+
+		same_vma_tmp = same_vma_cnt;
+		
+		for ( ; offset - start_offset <= window_limit && same_vma_tmp < same_vma_window && offset < si->max ; offset++) {
+			vma_tmp = get_swap_vma(si, offset);
+			if (vma_tmp == vma_cur)
+				same_vma_tmp++;
+		}
+
+		// reach limit or 50% same vma
+		if (same_vma_tmp >= same_vma_window || same_vma_tmp * 2 >= (offset - end_offset - 1)) {
+			__count_vm_events(EXTEND_RA, offset - end_offset - 1);
+			__count_vm_events(EXTEND_RA_SAME_VMA, same_vma_tmp - same_vma_cnt);
+			end_offset = offset - 1;
+		}
+	}
+	
 
 	swap_ra_break_flag = true;
 	blk_start_plug(&plug);
