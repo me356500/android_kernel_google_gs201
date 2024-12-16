@@ -71,9 +71,6 @@ extern unsigned long pre_pid, pre_offset;
 extern atomic_long_t anon_refault_page, anon_wa_refault;
 
 /* swap compaction */
-extern unsigned flash_swap_block;
-extern unsigned per_app_swap_slot;
-extern unsigned COMP_THRESHOLD;
 extern unsigned long long total_compaction_cnt;
 extern unsigned long long total_valid_slot;
 extern unsigned long long min_valid_slot;
@@ -86,4 +83,6 @@ extern bool fixed_prefetch;
 extern unsigned prefetch_window_size;
 extern bool per_app_vma_prefetch;
 extern bool per_app_ra_prefetch;
+extern bool drop_diff_vma_page;
+extern bool extend_large_window;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

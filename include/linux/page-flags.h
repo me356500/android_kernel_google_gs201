@@ -126,6 +126,8 @@ enum pageflags {
 	// ycc modify
 	PG_reswapin,
 	PG_samevma,
+	PG_extend,
+	PG_extendsamevma,
 #ifdef CONFIG_MMU
 	PG_mlocked,		/* Page is vma mlocked */
 #endif
@@ -428,6 +430,18 @@ PAGEFLAG(SameVMA, samevma, PF_ANY)
 	__CLEARPAGEFLAG(SameVMA, samevma, PF_ANY)
 	__SETPAGEFLAG(SameVMA, samevma, PF_ANY)
 	TESTCLEARFLAG(SameVMA, samevma, PF_ANY)
+
+// wyc modify
+PAGEFLAG(Extend, extend, PF_ANY)
+	__CLEARPAGEFLAG(Extend, extend, PF_ANY)
+	__SETPAGEFLAG(Extend, extend, PF_ANY)
+	TESTCLEARFLAG(Extend, extend, PF_ANY)
+
+	// wyc modify
+PAGEFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
+	__CLEARPAGEFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
+	__SETPAGEFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
+	TESTCLEARFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
 
 #ifdef CONFIG_MMU
 PAGEFLAG(Mlocked, mlocked, PF_NO_TAIL)
