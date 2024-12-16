@@ -35,21 +35,19 @@ unsigned long long comp_page = 0;
 unsigned long long res_page = 0;
 unsigned long long swp_out_page = 0;
 /* compaction setting: module parameter*/
-unsigned flash_swap_block = 4096;
-unsigned per_app_swap_slot = 256;
-unsigned COMP_THRESHOLD = 50;
 bool fixed_prefetch = 0;
 unsigned prefetch_window_size = 8;
 bool per_app_vma_prefetch = 0;
 bool per_app_ra_prefetch = 0;
+bool drop_diff_vma_page = 0;
+bool extend_large_window = 0;
 
-module_param_named(flash_swap_block, flash_swap_block, uint, 0644);
-module_param_named(per_app_swap_slot, per_app_swap_slot, uint, 0644);
-module_param_named(COMP_THRESHOLD, COMP_THRESHOLD, uint, 0644);
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
 module_param_named(per_app_vma_prefetch, per_app_vma_prefetch, bool, 0644);
 module_param_named(per_app_ra_prefetch, per_app_ra_prefetch, bool, 0644);
+module_param_named(drop_diff_vma_page, drop_diff_vma_page, bool, 0644);
+module_param_named(extend_large_window, extend_large_window, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -1419,10 +1417,6 @@ static void show_info()
 
 	printk("ycc hyswp_info -----------------------------------------------");
 
-	//printk("wyc swapin_info, %d, %d, %d, %d\n", same_app_adj, same_app, diff_app_adj, diff_app);
-	//printk("wyc migrate_info, %d, %d\n", total_compaction_cnt, (total_valid_slot / total_compaction_cnt));
-	//printk("wyc migrate_amount, %d, %d, %d\n", res_page, comp_page, swp_out_page);
-	//printk("wyc minmax_valid_slot, %d, %d\n", min_valid_slot, max_valid_slot);
 }
 
 static int hyswp_migrate(void *p)

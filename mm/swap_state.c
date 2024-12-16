@@ -601,6 +601,14 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			count_vm_event(FLASH_RA_SAME_VMA_HIT);
 			put_swap_ra_count(page_uid, page_pid, 3, swp_type(entry));
 		}
+
+		if (TestClearPageExtend(page)) {
+			count_vm_event(EXTEND_ACTUAL_RA_HIT);
+		}
+
+		if (TestClearPageExtendSameVMA(page)) {
+			count_vm_event(EXTEND_ACTUAL_RA_SAME_VMA_HIT);
+		}
 	}
 
 	return page;
@@ -903,7 +911,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 
 	// add by wyc
 	unsigned same_vma_cnt = 0, same_vma_window = 0, same_vma_tmp = 0;
-	unsigned long window_limit = 16 - 1;
+	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -965,8 +973,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (end_offset >= si->max)
 		end_offset = si->max - 1;
 
+	/* wyc extend prefetch window */
+	pre_end_offset = end_offset;
 	/* adjust vma readahead */
-	if (per_app_vma_prefetch && mask != 15 && swp_type(entry) == 1) {
+	if (per_app_vma_prefetch && (mask != 15 || extend_large_window) && swp_type(entry) == 1) {
+		// traverse current window
 		for (offset = start_offset; offset <= end_offset && offset < si->max ; offset++) {
 			vma_tmp = get_swap_vma(si, offset);
 			if (vma_tmp == vma_cur)
@@ -974,7 +985,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}
 
 		same_vma_tmp = same_vma_cnt;
-		
+		// collect same vma page count
 		for ( ; offset - start_offset <= window_limit && same_vma_tmp < same_vma_window && offset < si->max ; offset++) {
 			vma_tmp = get_swap_vma(si, offset);
 			if (vma_tmp == vma_cur)
@@ -1015,9 +1026,22 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 					count_vm_event(FLASH_RA);
 					if (vma_cur && vma_tmp && vma_tmp == vma_cur) {
 						count_vm_event(FLASH_RA_SAME_VMA);
+						if (offset > pre_end_offset) {
+							count_vm_event(EXTEND_ACTUAL_RA_SAME_VMA);
+							SetPageExtendSameVMA(page);
+						}
 						put_swap_ra_count(page_uid, page_pid, 2, swp_type(entry));
-						SetPageSameVMA(page);
+						SetPageSameVMA(page);				
 					}
+					// demote different vma page
+					else if (drop_diff_vma_page && vma_cur && vma_tmp && vma_cur != vma_tmp) {
+						count_vm_event(DROP_DIFF_VMA_PAGE);
+						SetPageReswapin(page);
+					}
+				}
+				if (offset > pre_end_offset) {
+					count_vm_event(EXTEND_ACTUAL_RA);
+					SetPageExtend(page);
 				}
 			}
 			swap_readpage(page, false);
