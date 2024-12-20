@@ -85,4 +85,5 @@ extern bool per_app_vma_prefetch;
 extern bool per_app_ra_prefetch;
 extern bool drop_diff_vma_page;
 extern bool extend_large_window;
+extern unsigned overflow_fixed_window;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */
