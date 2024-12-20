@@ -911,6 +911,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 
 	// add by wyc
 	unsigned same_vma_cnt = 0, same_vma_window = 0, same_vma_tmp = 0;
+	unsigned overflow_cnt = 0;
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 
 	page_uid = page_pid = -1;
@@ -934,6 +935,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (per_app_vma_prefetch) {
 		// mask = get_app_ra_window(page_uid, page_pid) - 1;
 		same_vma_window = get_app_same_vma_window(page_uid, page_pid);
+	}
+
+	if (overflow_fixed_window) {
+		window_limit = overflow_fixed_window - 1;
 	}
 
 	skipra = 0;
@@ -990,11 +995,13 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			vma_tmp = get_swap_vma(si, offset);
 			if (vma_tmp == vma_cur)
 				same_vma_tmp++;
+			if (vma_tmp)
+				overflow_cnt++;
 		}
 
 		// reach limit or 50% same vma
-		if (same_vma_tmp >= same_vma_window || same_vma_tmp * 2 >= (offset - end_offset - 1)) {
-			__count_vm_events(EXTEND_RA, offset - end_offset - 1);
+		if (same_vma_tmp >= same_vma_window || same_vma_tmp * 2 >= (overflow_cnt)) {
+			__count_vm_events(EXTEND_RA, overflow_cnt);
 			__count_vm_events(EXTEND_RA_SAME_VMA, same_vma_tmp - same_vma_cnt);
 			end_offset = offset - 1;
 		}
