@@ -86,4 +86,7 @@ extern bool per_app_ra_prefetch;
 extern bool drop_diff_vma_page;
 extern bool extend_large_window;
 extern unsigned overflow_fixed_window;
+extern bool readahead_unused_slot;
+extern bool skip_zram_ra;
+extern bool drop_old_page;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

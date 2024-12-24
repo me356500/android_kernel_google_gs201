@@ -649,7 +649,7 @@ struct page *find_get_incore_page(struct address_space *mapping, pgoff_t index)
 
 struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct vm_area_struct *vma,
 				     unsigned long addr, bool *new_page_allocated,
-				     unsigned skip_cnt)
+				     unsigned skip_cnt, bool readhole)
 {
 	struct swap_info_struct *si;
 	struct page *page;
@@ -683,7 +683,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct v
 		 * as SWAP_HAS_CACHE.  That's done in later part of code or
 		 * else swap_off will be aborted if we return NULL.
 		 */
-		if (!__swp_swapcount(entry) && swap_slot_cache_enabled)
+		if (!readhole && !__swp_swapcount(entry) && swap_slot_cache_enabled)
 			return NULL;
 
 		/*
@@ -700,6 +700,10 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct v
 		 */
 		err = swapcache_prepare(entry);
 		if (!err)
+			break;
+
+		// wyc: read unused slot
+		if (readhole && err == -ENOENT)
 			break;
 
 		put_page(page);
@@ -734,7 +738,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct v
 		goto fail_unlock;
 	}
 
-	if (shadow)
+	if (shadow && !readhole)
 		refault = workingset_refault(page, shadow, skip_cnt);
 	// ycc modify
 	if (!skip_cnt && refault != -1) {
@@ -767,7 +771,7 @@ struct page *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask, struct vm_
 {
 	bool page_was_allocated;
 	struct page *retpage =
-		__read_swap_cache_async(entry, gfp_mask, vma, addr, &page_was_allocated, skip_cnt);
+		__read_swap_cache_async(entry, gfp_mask, vma, addr, &page_was_allocated, skip_cnt, 0);
 
 	if (page_was_allocated)
 		swap_readpage(retpage, do_poll);
@@ -913,6 +917,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned same_vma_cnt = 0, same_vma_window = 0, same_vma_tmp = 0;
 	unsigned overflow_cnt = 0;
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
+	bool readhole = 0;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -920,6 +925,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (vma && vma->vm_mm && vma->vm_mm->owner)
 		page_pid = vma->vm_mm->owner->pid;
 	
+	// skip zram_ra
+	if (per_app_vma_prefetch && swp_type(entry) == 0)
+		goto skip;
+
 	if (swp_type(entry) == 1)
 		vma_cur = get_swap_vma(si, entry_offset);
 
@@ -927,11 +936,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (fixed_prefetch == 1) {
 		mask = prefetch_window_size - 1;
 	}
-
+	// wyc: per_app_prefetch
 	if (per_app_ra_prefetch) {
 		mask = get_app_ra_window(page_uid, page_pid) - 1;
 	}
-
+	// wyc: overflow_prefetch
 	if (per_app_vma_prefetch) {
 		// mask = get_app_ra_window(page_uid, page_pid) - 1;
 		same_vma_window = get_app_same_vma_window(page_uid, page_pid);
@@ -1000,7 +1009,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}
 
 		// reach limit or 50% same vma
-		if (same_vma_tmp >= same_vma_window || same_vma_tmp * 2 >= (overflow_cnt)) {
+		if (same_vma_tmp >= same_vma_window || (same_vma_tmp - same_vma_cnt) * 2 >= (overflow_cnt)) {
 			__count_vm_events(EXTEND_RA, overflow_cnt);
 			__count_vm_events(EXTEND_RA_SAME_VMA, same_vma_tmp - same_vma_cnt);
 			end_offset = offset - 1;
@@ -1011,23 +1020,33 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	swap_ra_break_flag = true;
 	blk_start_plug(&plug);
 	for (offset = start_offset; offset <= end_offset ; offset++) {
-//#ifdef swap_alloc_swap_ra_enable
-		if (swp_type(entry) == 0) {
+		if (skip_zram_ra && swp_type(entry) == 0) {
 			// ycc modify : skip zram_ra
 			skipra++;
 			continue;
 		}
-//#endif
+		// read unused slot
+		if (readahead_unused_slot && (!__swp_swapcount(swp_entry(swp_type(entry), offset)))) {
+			readhole = 1;
+		}
 		virt_prefetch++;
 		/* Ok, do the async read-ahead now */
 		page = __read_swap_cache_async(swp_entry(swp_type(entry), offset), gfp_mask, vma,
-					       addr, &page_allocated, skip_cnt);
+					       addr, &page_allocated, skip_cnt, readhole);
+		readhole = 0;
 		if (!page) {
-			swap_ra_break_flag = true;
+			if (!readahead_unused_slot)
+				swap_ra_break_flag = true;
+			count_vm_event(SWAP_RA_HOLE);
 			continue;
 		}
+		// prefetch page in swap cache
+		if (!page_allocated) {
+			swap_ra_break_flag = true;
+			count_vm_event(SWAP_RA_HAS_CACHE);
+		}
 		if (page_allocated) {
-			if (swp_type(entry) == 1) {
+			if (swp_type(entry) == 1 && (!readahead_unused_slot || __swp_swapcount(swp_entry(swp_type(entry), offset)))) {
 				vma_tmp = get_swap_vma(si, offset);
 				if (offset != entry_offset) {
 					count_vm_event(FLASH_RA);
@@ -1040,10 +1059,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						put_swap_ra_count(page_uid, page_pid, 2, swp_type(entry));
 						SetPageSameVMA(page);				
 					}
-					// demote different vma page
+					// drop different vma page
 					else if (drop_diff_vma_page && vma_cur && vma_tmp && vma_cur != vma_tmp) {
 						count_vm_event(DROP_DIFF_VMA_PAGE);
 						SetPageReswapin(page);
+						rotate_reclaimable_page(page);
 					}
 				}
 				if (offset > pre_end_offset) {
@@ -1052,7 +1072,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				}
 			}
 			swap_readpage(page, false);
-			if (offset != entry_offset) {
+			if (offset != entry_offset && (!readahead_unused_slot || __swp_swapcount(swp_entry(swp_type(entry), offset)))) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
@@ -1065,6 +1085,13 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				swap_ra_break_flag = false;
 				swap_ra_io++;
 				io_count++;
+			}
+			if (readahead_unused_slot && !__swp_swapcount(swp_entry(swp_type(entry), offset))) {
+				count_vm_event(SWAP_RA_HOLE);
+				// drop unused slot
+				// not sure about funcionality correctness
+				try_to_free_swap(page);
+				unlock_page(page);
 			}
 		}
 		readra++;
@@ -1173,6 +1200,9 @@ static void swap_ra_info(struct vm_fault *vmf,
 	hits = SWAP_RA_HITS(ra_val);
 	ra_info->win = win = __swapin_nr_pages(pfn, fpfn, hits,
 					       max_win, prev_win);
+	if (fixed_prefetch == 1) {
+		ra_info->win = win = prefetch_window_size;
+	}
 	atomic_long_set(&vma->swap_readahead_info,
 			SWAP_RA_VAL(faddr, win, 0));
 
@@ -1232,6 +1262,8 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask, struc
 	struct vma_swap_readahead ra_info = {0,};
 	int page_uid, page_pid;
 	unsigned long skipra = 0, readra = 0; // ycc modify
+	// add by wyc: io count
+	unsigned long offset = 0, pre_offset = 0;
 	skipra = 0;
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -1254,9 +1286,11 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask, struc
 		entry = pte_to_swp_entry(pentry);
 		if (unlikely(non_swap_entry(entry)))
 			continue;
+		if (skip_zram_ra && swp_type(entry) == 0)
+			continue;
 
 		page = __read_swap_cache_async(entry, gfp_mask, vma, vmf->address, &page_allocated,
-					       skip_cnt);
+					       skip_cnt, 0);
 		if (!page)
 			continue;
 		if (page_allocated) {
@@ -1266,6 +1300,15 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask, struc
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
 			}
+			// collect entry offset & io count
+			offset = swp_offset(entry);
+			if (swp_type(entry) != 0) {
+				actual_prefetch++;
+			}
+			if (!(offset == pre_offset + 1 || offset == pre_offset - 1)) {
+				swap_ra_io++;
+			}
+			pre_offset = offset;
 		}
 		// ycc modify
 		readra++;
