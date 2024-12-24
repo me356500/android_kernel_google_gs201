@@ -918,6 +918,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned overflow_cnt = 0;
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 	bool readhole = 0;
+	unsigned long pf_seq_id = 0;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -929,8 +930,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (per_app_vma_prefetch && swp_type(entry) == 0)
 		goto skip;
 
-	if (swp_type(entry) == 1)
+	if (swp_type(entry) == 1) {
+		pf_seq_id = si->rmap[entry_offset].seq_id;
 		vma_cur = get_swap_vma(si, entry_offset);
+	}
 
 	mask = swapin_nr_pages(offset) - 1;
 	if (fixed_prefetch == 1) {
@@ -1025,6 +1028,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			skipra++;
 			continue;
 		}
+		if (skip_old_page && si->rmap[offset].seq_id+ 1000000 < pf_seq_id) {
+			count_vm_event(SKIP_OLD_PAGE);
+			continue;
+		}
 		// read unused slot
 		if (readahead_unused_slot && (!__swp_swapcount(swp_entry(swp_type(entry), offset)))) {
 			readhole = 1;
@@ -1066,6 +1073,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						rotate_reclaimable_page(page);
 					}
 				}
+				if (drop_old_page && si->rmap[offset].seq_id + 1000000 < pf_seq_id) {
+					count_vm_event(DROP_OLD_PAGE);
+					SetPageReswapin(page);
+					rotate_reclaimable_page(page);
+				}
 				if (offset > pre_end_offset) {
 					count_vm_event(EXTEND_ACTUAL_RA);
 					SetPageExtend(page);
@@ -1090,8 +1102,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				count_vm_event(SWAP_RA_HOLE);
 				// drop unused slot
 				// not sure about funcionality correctness
-				try_to_free_swap(page);
-				unlock_page(page);
+				free_swap_cache(page);
 			}
 		}
 		readra++;
