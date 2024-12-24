@@ -89,4 +89,5 @@ extern unsigned overflow_fixed_window;
 extern bool readahead_unused_slot;
 extern bool skip_zram_ra;
 extern bool drop_old_page;
+extern bool skip_old_page;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */
