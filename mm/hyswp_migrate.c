@@ -45,6 +45,9 @@ unsigned overflow_fixed_window = 16;
 int vma_window_limit = 10;
 unsigned vma_window_inc_ratio = 50;
 unsigned vma_window_dec_ratio = 30;
+bool readahead_unused_slot = 0;
+bool skip_zram_ra = 0;
+bool drop_old_page = 0;
 
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
@@ -56,6 +59,9 @@ module_param_named(overflow_fixed_window, overflow_fixed_window, uint, 0644);
 module_param_named(vma_window_limit, vma_window_limit, int, 0644);
 module_param_named(vma_window_inc_ratio, vma_window_inc_ratio, uint, 0644);
 module_param_named(vma_window_dec_ratio, vma_window_dec_ratio, uint, 0644);
+module_param_named(readahead_unused_slot, readahead_unused_slot, bool, 0644);
+module_param_named(skip_zram_ra, skip_zram_ra, bool, 0644);
+module_param_named(drop_old_page, drop_old_page, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -1424,6 +1430,8 @@ static void show_info()
 	print_swap_distribution_log();
 
 	printk("ycc hyswp_info -----------------------------------------------");
+
+	printk("wyc actual prefetch, io_count, %d, %d\n", actual_prefetch, swap_ra_io);
 
 }
 

@@ -461,7 +461,7 @@ extern struct page *read_swap_cache_async(swp_entry_t, gfp_t,
 			bool do_poll, unsigned skip_cnt);
 extern struct page *__read_swap_cache_async(swp_entry_t, gfp_t,
 			struct vm_area_struct *vma, unsigned long addr,
-			bool *new_page_allocated, unsigned skip_cnt);
+			bool *new_page_allocated, unsigned skip_cnt, bool readhole);
 extern struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t flag,
 				struct vm_fault *vmf, unsigned skip_cnt);
 extern struct page *swapin_readahead(swp_entry_t entry, gfp_t flag,
