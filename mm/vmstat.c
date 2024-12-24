@@ -1351,6 +1351,7 @@ const char * const vmstat_text[] = {
 #ifdef CONFIG_SWAP
 	"swap_ra",
 	"swap_ra_hit",
+	"swap_ra_has_cache", // add by wyc
 	"flash_swap_scan",  // add by tyc
 	"flash_swap_cluster",  // add by tyc
 	"flash_swap_old_cluster",  // add by tyc
@@ -1367,6 +1368,7 @@ const char * const vmstat_text[] = {
 	"extend_actual_ra_same_vma", // add by wyc
 	"extend_actual_ra_same_vma_hit", //add by wyc
 	"drop_diff_vma_page", // add by wyc
+	"swap_ra_hole", // add by wyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",
