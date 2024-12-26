@@ -128,6 +128,7 @@ enum pageflags {
 	PG_samevma,
 	PG_extend,
 	PG_extendsamevma,
+	PG_droppage,
 #ifdef CONFIG_MMU
 	PG_mlocked,		/* Page is vma mlocked */
 #endif
@@ -443,6 +444,11 @@ PAGEFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
 	__SETPAGEFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
 	TESTCLEARFLAG(ExtendSameVMA, extendsamevma, PF_ANY)
 
+// wyc modify
+PAGEFLAG(DropPage, droppage, PF_ANY)
+	__CLEARPAGEFLAG(DropPage, droppage, PF_ANY)
+	__SETPAGEFLAG(DropPage, droppage, PF_ANY)
+	TESTCLEARFLAG(DropPage, droppage, PF_ANY)
 #ifdef CONFIG_MMU
 PAGEFLAG(Mlocked, mlocked, PF_NO_TAIL)
 	__CLEARPAGEFLAG(Mlocked, mlocked, PF_NO_TAIL)

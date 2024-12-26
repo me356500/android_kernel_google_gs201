@@ -1353,6 +1353,7 @@ const char * const vmstat_text[] = {
 	"swap_ra_hit",
 	"swap_ra_has_cache", // add by wyc
 	"swap_ra_hole", // add by wyc
+	"swap_ra_drop_hole", // add by wyc
 	"flash_swap_scan",  // add by tyc
 	"flash_swap_cluster",  // add by tyc
 	"flash_swap_old_cluster",  // add by tyc
