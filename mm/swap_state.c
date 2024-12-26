@@ -1042,8 +1042,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 					       addr, &page_allocated, skip_cnt, readhole);
 		readhole = 0;
 		if (!page) {
-			if (!readahead_unused_slot)
-				swap_ra_break_flag = true;
+			swap_ra_break_flag = true;
 			count_vm_event(SWAP_RA_HOLE);
 			continue;
 		}
@@ -1069,14 +1068,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 					// drop different vma page
 					else if (drop_diff_vma_page && vma_cur && vma_tmp && vma_cur != vma_tmp) {
 						count_vm_event(DROP_DIFF_VMA_PAGE);
-						SetPageReswapin(page);
-						rotate_reclaimable_page(page);
+						SetPageDropPage(page);
 					}
 				}
 				if (drop_old_page && si->rmap[offset].seq_id + 1000000 < pf_seq_id) {
-					count_vm_event(DROP_OLD_PAGE);
-					SetPageReswapin(page);
-					rotate_reclaimable_page(page);
+					count_vm_event(SKIP_OLD_PAGE);
+					SetPageDropPage(page);
 				}
 				if (offset > pre_end_offset) {
 					count_vm_event(EXTEND_ACTUAL_RA);
@@ -1100,9 +1097,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			}
 			if (readahead_unused_slot && !__swp_swapcount(swp_entry(swp_type(entry), offset))) {
 				count_vm_event(SWAP_RA_HOLE);
-				// drop unused slot
-				// not sure about funcionality correctness
-				free_swap_cache(page);
+				SetPageDropPage(page);
 			}
 		}
 		readra++;
@@ -1122,7 +1117,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		else
 			actual_ra_page[1]++;
 	}
-#endif
+#endif          	          	
 	if (io_count < max_ra_page)
 		ra_io_cnt[io_count]++;
 	if (actual_ra_read)

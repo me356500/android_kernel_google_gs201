@@ -126,6 +126,7 @@ enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		SWAP_RA_HIT,
 		SWAP_RA_HAS_CACHE, 	// add by wyc
 		SWAP_RA_HOLE,		// add by wyc
+		SWAP_RA_DROP_HOLE, 	// add by wyc
 		FLASH_SWAP_SCAN,	// add by tyc
 		FLASH_SWAP_CLUSTER,	// add by tyc
 		FLASH_SWAP_OLD_CLUSTER,	// add by tyc

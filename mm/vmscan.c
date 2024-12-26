@@ -1291,6 +1291,16 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 			; /* try to reclaim the page below */
 		}
 
+		// wyc add drop page
+		if (PageDropPage(page)) {
+			if (mapping && __remove_mapping(mapping, page, false,
+							 sc->target_mem_cgroup)) {
+				count_vm_event(SWAP_RA_DROP_HOLE);
+				ClearPageDropPage(page);
+				unlock_page(page);
+				goto free_it;
+			}
+		}
 		/*
 		 * Anonymous process memory has backing store?
 		 * Try to allocate it some swap space here.
