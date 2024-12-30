@@ -143,7 +143,8 @@ enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		EXTEND_ACTUAL_RA_SAME_VMA,		// add by wyc
 		EXTEND_ACTUAL_RA_SAME_VMA_HIT,	// add by wyc
 		DROP_DIFF_VMA_PAGE,				// add by wyc
-		SKIP_OLD_PAGE,	// add by wyc
+		SWAP_RA_OLD_PAGE,	// add by wyc
+		SWAP_RA_OLD_PAGE_HIT, // add by wyc
 		DROP_OLD_PAGE,	// add by wyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT

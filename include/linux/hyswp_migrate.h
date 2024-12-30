@@ -90,4 +90,7 @@ extern bool readahead_unused_slot;
 extern bool skip_zram_ra;
 extern bool drop_old_page;
 extern bool skip_old_page;
+extern unsigned old_page_threshold;
+extern bool get_ra_page_age;
+extern void set_page_age(int age);
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */
