@@ -609,6 +609,10 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		if (TestClearPageExtendSameVMA(page)) {
 			count_vm_event(EXTEND_ACTUAL_RA_SAME_VMA_HIT);
 		}
+
+		if (TestClearPageOldPage(page)) {
+			count_vm_event(SWAP_RA_OLD_PAGE_HIT);
+		}
 	}
 
 	return page;
@@ -918,7 +922,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned overflow_cnt = 0;
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 	bool readhole = 0;
-	unsigned long pf_seq_id = 0;
+	unsigned long pf_seq_id = 0, ra_seq_id = 0;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -1028,19 +1032,20 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			skipra++;
 			continue;
 		}
-		if (skip_old_page && si->rmap[offset].seq_id+ 1000000 < pf_seq_id) {
-			count_vm_event(SKIP_OLD_PAGE);
+		// ra page seq_id
+		ra_seq_id = si->rmap[offset].seq_id;
+		if (skip_old_page && ra_seq_id + old_page_threshold < pf_seq_id) {
+			count_vm_event(SWAP_RA_OLD_PAGE);
 			continue;
 		}
 		// read unused slot
-		if (readahead_unused_slot && (!__swp_swapcount(swp_entry(swp_type(entry), offset)))) {
-			readhole = 1;
+		if (readahead_unused_slot) {
+			readhole = __swp_swapcount(swp_entry(swp_type(entry), offset)) == 0;
 		}
 		virt_prefetch++;
 		/* Ok, do the async read-ahead now */
 		page = __read_swap_cache_async(swp_entry(swp_type(entry), offset), gfp_mask, vma,
 					       addr, &page_allocated, skip_cnt, readhole);
-		readhole = 0;
 		if (!page) {
 			swap_ra_break_flag = true;
 			count_vm_event(SWAP_RA_HOLE);
@@ -1052,7 +1057,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			count_vm_event(SWAP_RA_HAS_CACHE);
 		}
 		if (page_allocated) {
-			if (swp_type(entry) == 1 && (!readahead_unused_slot || __swp_swapcount(swp_entry(swp_type(entry), offset)))) {
+			if (swp_type(entry) == 1 && (!readahead_unused_slot || !readhole)) {
 				vma_tmp = get_swap_vma(si, offset);
 				if (offset != entry_offset) {
 					count_vm_event(FLASH_RA);
@@ -1062,6 +1067,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 							count_vm_event(EXTEND_ACTUAL_RA_SAME_VMA);
 							SetPageExtendSameVMA(page);
 						}
+						// adjust same vma window
 						put_swap_ra_count(page_uid, page_pid, 2, swp_type(entry));
 						SetPageSameVMA(page);				
 					}
@@ -1071,9 +1077,17 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						SetPageDropPage(page);
 					}
 				}
-				if (drop_old_page && si->rmap[offset].seq_id + 1000000 < pf_seq_id) {
-					count_vm_event(SKIP_OLD_PAGE);
-					SetPageDropPage(page);
+				// get ra page age
+				if (get_ra_page_age && pf_seq_id > ra_seq_id) {
+					set_page_age((pf_seq_id - ra_seq_id));
+				}
+				// old page threshold
+				if (ra_seq_id + old_page_threshold < pf_seq_id) {
+					count_vm_event(SWAP_RA_OLD_PAGE);
+					// drop old page
+					if (drop_old_page)
+						SetPageDropPage(page);
+					SetPageOldPage(page);
 				}
 				if (offset > pre_end_offset) {
 					count_vm_event(EXTEND_ACTUAL_RA);
@@ -1081,7 +1095,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				}
 			}
 			swap_readpage(page, false);
-			if (offset != entry_offset && (!readahead_unused_slot || __swp_swapcount(swp_entry(swp_type(entry), offset)))) {
+			if (offset != entry_offset && (!readahead_unused_slot || !readhole)) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
@@ -1095,7 +1109,8 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				swap_ra_io++;
 				io_count++;
 			}
-			if (readahead_unused_slot && !__swp_swapcount(swp_entry(swp_type(entry), offset))) {
+			// drop unused slot
+			if (readahead_unused_slot && readhole) {
 				count_vm_event(SWAP_RA_HOLE);
 				SetPageDropPage(page);
 			}

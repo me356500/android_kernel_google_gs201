@@ -49,6 +49,8 @@ bool readahead_unused_slot = 0;
 bool skip_zram_ra = 0;
 bool drop_old_page = 0;
 bool skip_old_page = 0;
+bool get_ra_page_age = 0;
+unsigned old_page_threshold = 1000000;
 
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
@@ -64,6 +66,8 @@ module_param_named(readahead_unused_slot, readahead_unused_slot, bool, 0644);
 module_param_named(skip_zram_ra, skip_zram_ra, bool, 0644);
 module_param_named(drop_old_page, drop_old_page, bool, 0644);
 module_param_named(skip_old_page, skip_old_page, bool, 0644);
+module_param_named(old_page_threshold, old_page_threshold, uint, 0644);
+module_param_named(get_ra_page_age, get_ra_page_age, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -187,6 +191,34 @@ atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot], app_ra_wi
 atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_ra_window[total_proc_slot],
 	proc_ra_vma[total_proc_slot], proc_ra_vma_hit[total_proc_slot], proc_ra_vma_window[total_proc_slot];
 
+atomic_long_t ra_page_age[12];
+
+void set_page_age(int age) {
+	if (age < 100)
+		atomic_long_inc(&ra_page_age[0]);
+	else if (age < 500)
+		atomic_long_inc(&ra_page_age[1]);
+	else if (age < 1000)
+		atomic_long_inc(&ra_page_age[2]);
+	else if (age < 5000)
+		atomic_long_inc(&ra_page_age[3]);
+	else if (age < 10000)
+		atomic_long_inc(&ra_page_age[4]);
+	else if (age < 50000)
+		atomic_long_inc(&ra_page_age[5]);
+	else if (age < 250000)
+		atomic_long_inc(&ra_page_age[6]);
+	else if (age < 500000)
+		atomic_long_inc(&ra_page_age[7]);
+	else if (age < 1000000)
+		atomic_long_inc(&ra_page_age[8]);
+	else if (age < 2000000)
+		atomic_long_inc(&ra_page_age[9]);
+	else if (age < 3000000)
+		atomic_long_inc(&ra_page_age[10]);
+	else 
+		atomic_long_inc(&ra_page_age[11]);
+}
 #ifdef swap_alloc_swap_ra_enable
 /* app-based swap readahead*/
 void set_app_ra_window(void)
@@ -1435,6 +1467,13 @@ static void show_info()
 
 	printk("wyc actual prefetch, io_count, %d, %d\n", actual_prefetch, swap_ra_io);
 
+	if (get_ra_page_age) {
+		sprintf(msg, "page age");
+		for (i = 0; i < 12; i++) {
+			sprintf(msg, "%s, %u", msg, atomic_long_read(&ra_page_age[i]));
+		}
+		printk("wyc scan_round,%d, %s", scan_round, msg);
+	}
 }
 
 static int hyswp_migrate(void *p)
