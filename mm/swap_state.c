@@ -852,8 +852,9 @@ static struct vm_area_struct *get_swap_vma(struct swap_info_struct *si, unsigned
 	struct anon_vma_chain *avc = NULL;
 	struct vm_area_struct *vma = NULL;
 	unsigned long mapping;
+	unsigned char swap_map = si->swap_map[offset];
 
-	if (!si->swap_map[offset] || si->swap_map[offset] == SWAP_MAP_BAD) {
+	if (!swap_map || swap_map == SWAP_MAP_BAD) {
 		return vma;
 	}
 
@@ -923,6 +924,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 	bool readhole = 0;
 	unsigned long pf_seq_id = 0, ra_seq_id = 0;
+	int ra_page_pid = -1;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -1023,7 +1025,8 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}
 	}
 	
-
+	if (swp_type(entry) != 0)
+		count_vm_event(SWAP_RA_CNT);
 	swap_ra_break_flag = true;
 	blk_start_plug(&plug);
 	for (offset = start_offset; offset <= end_offset ; offset++) {
@@ -1075,6 +1078,14 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 					else if (drop_diff_vma_page && vma_cur && vma_tmp && vma_cur != vma_tmp) {
 						count_vm_event(DROP_DIFF_VMA_PAGE);
 						SetPageDropPage(page);
+					}
+					// drop diff pid page
+					if (drop_diff_pid_page && page_pid != -1 && vma_tmp && vma_tmp->vm_mm && vma_tmp->vm_mm->owner) {
+						ra_page_pid = vma_tmp->vm_mm->owner->pid;
+						if (ra_page_pid != page_pid) {
+							count_vm_event(DROP_DIFF_PID_PAGE);
+							SetPageDropPage(page);
+						}
 					}
 				}
 				// get ra page age

@@ -122,6 +122,7 @@ enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		VMACACHE_FIND_HITS,
 #endif
 #ifdef CONFIG_SWAP
+		SWAP_RA_CNT,
 		SWAP_RA,
 		SWAP_RA_HIT,
 		SWAP_RA_HAS_CACHE, 	// add by wyc
@@ -143,6 +144,7 @@ enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		EXTEND_ACTUAL_RA_SAME_VMA,		// add by wyc
 		EXTEND_ACTUAL_RA_SAME_VMA_HIT,	// add by wyc
 		DROP_DIFF_VMA_PAGE,				// add by wyc
+		DROP_DIFF_PID_PAGE,				// add by wyc
 		SWAP_RA_OLD_PAGE,	// add by wyc
 		SWAP_RA_OLD_PAGE_HIT, // add by wyc
 		DROP_OLD_PAGE,	// add by wyc
