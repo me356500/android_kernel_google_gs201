@@ -1125,6 +1125,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				count_vm_event(SWAP_RA_HOLE);
 				SetPageDropPage(page);
 			}
+			// disable bio merge
+			if (shatter_prefetch_bio) {
+				blk_finish_plug(&plug);
+				blk_start_plug(&plug);
+			}
 		}
 		readra++;
 		put_page(page);

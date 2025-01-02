@@ -52,6 +52,7 @@ bool drop_old_page = 0;
 bool skip_old_page = 0;
 bool get_ra_page_age = 0;
 unsigned old_page_threshold = 1000000;
+bool shatter_prefetch_bio = 0;
 
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
@@ -70,6 +71,7 @@ module_param_named(drop_old_page, drop_old_page, bool, 0644);
 module_param_named(skip_old_page, skip_old_page, bool, 0644);
 module_param_named(old_page_threshold, old_page_threshold, uint, 0644);
 module_param_named(get_ra_page_age, get_ra_page_age, bool, 0644);
+module_param_named(shatter_prefetch_bio, shatter_prefetch_bio, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
