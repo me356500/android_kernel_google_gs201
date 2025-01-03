@@ -612,6 +612,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 
 		if (TestClearPageOldPage(page)) {
 			count_vm_event(SWAP_RA_OLD_PAGE_HIT);
+			ClearPageDropPage(page);
 		}
 	}
 
@@ -1038,6 +1039,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		// ra page seq_id
 		ra_seq_id = si->rmap[offset].seq_id;
 		if (skip_old_page && ra_seq_id + old_page_threshold < pf_seq_id) {
+			swap_ra_break_flag = true;
 			count_vm_event(SWAP_RA_OLD_PAGE);
 			continue;
 		}
