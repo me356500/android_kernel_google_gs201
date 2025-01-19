@@ -95,4 +95,5 @@ extern unsigned old_page_threshold;
 extern bool get_ra_page_age;
 extern void set_page_age(int age);
 extern bool shatter_prefetch_bio;
+extern bool prefetch_sync;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

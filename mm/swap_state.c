@@ -1107,7 +1107,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 					SetPageExtend(page);
 				}
 			}
-			swap_readpage(page, false);
+			swap_readpage(page, prefetch_sync);
 			if (offset != entry_offset && (!readahead_unused_slot || !readhole)) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
