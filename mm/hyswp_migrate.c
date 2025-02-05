@@ -42,7 +42,11 @@ bool per_app_ra_prefetch = 0;
 bool drop_diff_vma_page = 0;
 bool drop_diff_pid_page = 0;
 bool extend_large_window = 0;
-unsigned overflow_fixed_window = 16;
+unsigned overflow_init_window = 16;
+unsigned overflow_window_min = 8;
+unsigned overflow_window_limit = 16;
+unsigned overflow_window_inc_ratio = 60;
+unsigned overflow_window_dec_ratio = 35;
 int vma_window_limit = 10;
 unsigned vma_window_inc_ratio = 50;
 unsigned vma_window_dec_ratio = 30;
@@ -62,10 +66,14 @@ module_param_named(per_app_ra_prefetch, per_app_ra_prefetch, bool, 0644);
 module_param_named(drop_diff_vma_page, drop_diff_vma_page, bool, 0644);
 module_param_named(drop_diff_pid_page, drop_diff_pid_page, bool, 0644);
 module_param_named(extend_large_window, extend_large_window, bool, 0644);
-module_param_named(overflow_fixed_window, overflow_fixed_window, uint, 0644);
+module_param_named(overflow_init_window, overflow_init_window, uint, 0644);
+module_param_named(overflow_window_min, overflow_window_min, uint, 0644);
+module_param_named(overflow_window_limit, overflow_window_limit, uint, 0644);
 module_param_named(vma_window_limit, vma_window_limit, int, 0644);
 module_param_named(vma_window_inc_ratio, vma_window_inc_ratio, uint, 0644);
 module_param_named(vma_window_dec_ratio, vma_window_dec_ratio, uint, 0644);
+module_param_named(overflow_window_inc_ratio, overflow_window_inc_ratio, uint, 0644);
+module_param_named(overflow_window_dec_ratio, overflow_window_dec_ratio, uint, 0644);
 module_param_named(readahead_unused_slot, readahead_unused_slot, bool, 0644);
 module_param_named(skip_zram_ra, skip_zram_ra, bool, 0644);
 module_param_named(drop_old_page, drop_old_page, bool, 0644);
@@ -193,9 +201,9 @@ unsigned long per_app_swap_distribution
 /* app-based swap readahead*/
 #define total_proc_slot 10000
 atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot], app_ra_window[total_app_slot], 
-	app_ra_vma[total_app_slot], app_ra_vma_hit[total_app_slot], app_ra_vma_window[total_app_slot];
+	app_ra_vma[total_app_slot], app_ra_vma_hit[total_app_slot], app_ra_vma_window[total_app_slot], app_ra_vma_window_limit[total_app_slot];
 atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_ra_window[total_proc_slot],
-	proc_ra_vma[total_proc_slot], proc_ra_vma_hit[total_proc_slot], proc_ra_vma_window[total_proc_slot];
+	proc_ra_vma[total_proc_slot], proc_ra_vma_hit[total_proc_slot], proc_ra_vma_window[total_proc_slot], proc_ra_vma_window_limit[total_proc_slot];
 
 atomic_long_t ra_page_age[12];
 
@@ -291,12 +299,13 @@ unsigned get_app_ra_window(int app_uid, int app_pid)
 
 void set_vma_window(void)
 {
-	int i, ra_page, hit_page, ra_window;
+	int i, ra_page, hit_page, ra_window, ra_window_limit;
 	if (scan_round % 2 == 0) {
 		for (i = 0; i < total_app_slot; i++) {
 			ra_page = atomic_long_read(&app_ra_vma[i]);
 			hit_page = atomic_long_read(&app_ra_vma_hit[i]);
 			ra_window = atomic_long_read(&app_ra_vma_window[i]);
+			ra_window_limit = atomic_long_read(&app_ra_vma_window_limit[i]);
 			if (ra_page > 1000) {
 				unsigned hit_rate = hit_page * 100 / ra_page;
 				atomic_long_set(&app_ra_vma[i], ra_page / 2);
@@ -310,6 +319,15 @@ void set_vma_window(void)
 						continue;
 					atomic_long_set(&app_ra_vma_window[i], ra_window);
 				}
+				if (ra_window_limit <= overflow_window_limit && ra_window_limit >= overflow_window_min) {
+					if (hit_rate > overflow_window_inc_ratio)
+						ra_window_limit = min((int)overflow_window_limit, ra_window_limit + 1);
+					else if (hit_rate < overflow_window_dec_ratio)
+						ra_window_limit = max((int)overflow_window_min, ra_window_limit - 1);
+					else
+						continue;
+					atomic_long_set(&app_ra_vma_window_limit[i], ra_window_limit);
+				}
 			}
 		}
 
@@ -317,6 +335,7 @@ void set_vma_window(void)
 			ra_page = atomic_long_read(&proc_ra_vma[i]);
 			hit_page = atomic_long_read(&proc_ra_vma_hit[i]);
 			ra_window = atomic_long_read(&proc_ra_vma_window[i]);
+			ra_window_limit = atomic_long_read(&proc_ra_vma_window[i]);
 			if (ra_page > 1000) {
 				unsigned hit_rate = hit_page * 100 / ra_page;
 				atomic_long_set(&proc_ra_vma[i], ra_page / 2);
@@ -329,6 +348,15 @@ void set_vma_window(void)
 					else
 						continue;
 					atomic_long_set(&proc_ra_vma_window[i], ra_window);
+				}
+				if (ra_window_limit <= overflow_window_limit && ra_window_limit >= overflow_window_min) {
+					if (hit_rate > overflow_window_inc_ratio)
+						ra_window_limit = min((int)overflow_window_limit, ra_window_limit + 1);
+					else if (hit_rate < overflow_window_dec_ratio)
+						ra_window_limit = max((int)overflow_window_min, ra_window_limit - 1);
+					else
+						continue;
+					atomic_long_set(&proc_ra_vma_window_limit[i], ra_window_limit);
 				}
 			}
 		}
@@ -345,6 +373,21 @@ unsigned get_app_same_vma_window(int app_uid, int app_pid)
 	}
 	if (app_pid >= 0 && app_pid < total_proc_slot) {
 		vma_window = atomic_long_read(&proc_ra_vma_window[app_pid]);
+		return vma_window;
+	}
+	return vma_window;
+}
+
+unsigned get_app_same_vma_window_limit(int app_uid, int app_pid)
+{
+	unsigned vma_window = 16;
+	if (app_uid >= 10220 && app_uid < 10245) {
+		int slot = app_uid % total_app_slot;
+		vma_window = atomic_long_read(&app_ra_vma_window_limit[slot]);
+		return vma_window;
+	}
+	if (app_pid >= 0 && app_pid < total_proc_slot) {
+		vma_window = atomic_long_read(&proc_ra_vma_window_limit[app_pid]);
 		return vma_window;
 	}
 	return vma_window;
@@ -1253,6 +1296,13 @@ void print_swap_ra_log(void)
 		sprintf(msg, "%s, %u", msg, ra_window);
 	}
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	// window limit
+	sprintf(msg, "adaptive_app_ra_vma_window_limit");
+	for (i = 20; i < total_app_slot; i++) {
+		int ra_window = atomic_long_read(&app_ra_vma_window_limit[i]);
+		sprintf(msg, "%s, %u", msg, ra_window);
+	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 	// unused
 	sprintf(msg, "app_ra_vma_hit");
 	for (i = 20; i < total_app_slot; i++) {
@@ -1510,6 +1560,7 @@ static int hyswp_migrate(void *p)
 		atomic_long_set(&app_ra_vma[i], 1);
 		atomic_long_set(&app_ra_vma_hit[i], 0);
 		atomic_long_set(&app_ra_vma_window[i], 4);
+		atomic_long_set(&app_ra_vma_window_limit[i], overflow_init_window);
 		/* app swap in pattern */
 		atomic_long_set(&app_swap_in_zram[i], 0);
 		atomic_long_set(&app_swap_in_flash[i], 0);
@@ -1522,6 +1573,7 @@ static int hyswp_migrate(void *p)
 		atomic_long_set(&proc_ra_vma[i], 1);
 		atomic_long_set(&proc_ra_vma_hit[i], 0);
 		atomic_long_set(&proc_ra_vma_window[i], 4);
+		atomic_long_set(&proc_ra_vma_window_limit[i], overflow_init_window);
 	}
 
 	for (j = 0; j < 20; j++) {

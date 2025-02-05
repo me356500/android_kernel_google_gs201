@@ -40,6 +40,7 @@ extern void put_app_lifetime_swap_in(int uid, bool long_lifetime);
 /* app-based swap readahead*/
 extern unsigned get_app_ra_window(int app_uid, int app_pid);
 extern unsigned get_app_same_vma_window(int app_uid, int app_pid);
+extern unsigned get_app_same_vma_window_limit(int app_uid, int app_pid);
 #endif
 
 /* statistic */
@@ -86,7 +87,7 @@ extern bool per_app_ra_prefetch;
 extern bool drop_diff_vma_page;
 extern bool drop_diff_pid_page;
 extern bool extend_large_window;
-extern unsigned overflow_fixed_window;
+extern unsigned overflow_init_window;
 extern bool readahead_unused_slot;
 extern bool skip_zram_ra;
 extern bool drop_old_page;

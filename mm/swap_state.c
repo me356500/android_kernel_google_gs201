@@ -954,10 +954,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (per_app_vma_prefetch) {
 		// mask = get_app_ra_window(page_uid, page_pid) - 1;
 		same_vma_window = get_app_same_vma_window(page_uid, page_pid);
-	}
-
-	if (overflow_fixed_window) {
-		window_limit = overflow_fixed_window - 1;
+		window_limit = get_app_same_vma_window_limit(page_uid, page_pid) - 1;
 	}
 
 	skipra = 0;
