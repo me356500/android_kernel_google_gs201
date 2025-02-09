@@ -42,9 +42,9 @@ bool per_app_ra_prefetch = 0;
 bool drop_diff_vma_page = 0;
 bool drop_diff_pid_page = 0;
 bool extend_large_window = 0;
-unsigned overflow_init_window = 16;
-unsigned overflow_window_min = 8;
-unsigned overflow_window_limit = 16;
+unsigned overflow_init_window = 8;
+unsigned overflow_window_min = 4;
+unsigned overflow_window_limit = 12;
 unsigned overflow_window_inc_ratio = 60;
 unsigned overflow_window_dec_ratio = 35;
 int vma_window_limit = 10;
@@ -380,7 +380,7 @@ unsigned get_app_same_vma_window(int app_uid, int app_pid)
 
 unsigned get_app_same_vma_window_limit(int app_uid, int app_pid)
 {
-	unsigned vma_window = 16;
+	unsigned vma_window = overflow_init_window;
 	if (app_uid >= 10220 && app_uid < 10245) {
 		int slot = app_uid % total_app_slot;
 		vma_window = atomic_long_read(&app_ra_vma_window_limit[slot]);
