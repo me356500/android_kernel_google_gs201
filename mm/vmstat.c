@@ -1354,6 +1354,10 @@ const char * const vmstat_text[] = {
 	"flash_ra",
 	"zram_ra",
 	"swap_ra_cnt",
+	"no_prefetch",
+	"window_two",
+	"window_four",
+	"window_eight",
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",

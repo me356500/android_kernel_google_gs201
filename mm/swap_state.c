@@ -665,6 +665,19 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	unsigned long addr = vmf->address;
 
 	mask = swapin_nr_pages(offset) - 1;
+
+	if (!mask) {
+		count_vm_event(NO_PREFETCH);
+	}
+	else if (mask == 1) {
+		count_vm_event(WINDOW_TWO);
+	}
+	else if (mask == 3) {
+		count_vm_event(WINDOW_FOUR);
+	}
+	else if (mask == 7) {
+		count_vm_event(WINDOW_EIGHT);
+	}
 	if (!mask)
 		goto skip;
 
@@ -855,6 +868,20 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 	struct vma_swap_readahead ra_info = {0,};
 
 	swap_ra_info(vmf, &ra_info);
+
+	if (ra_info.win == 1) {
+		count_vm_event(NO_PREFETCH);
+	}
+	else if (ra_info.win == 2) {
+		count_vm_event(WINDOW_TWO);
+	}
+	else if (ra_info.win == 4) {
+		count_vm_event(WINDOW_FOUR);
+	}
+	else if (ra_info.win == 8) {
+		count_vm_event(WINDOW_EIGHT);
+	}
+
 	if (ra_info.win == 1)
 		goto skip;
 
