@@ -684,9 +684,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	if (end_offset >= si->max)
 		end_offset = si->max - 1;
 
+	count_vm_event(SWAP_RA_CNT);
 	blk_start_plug(&plug);
 	for (offset = start_offset; offset <= end_offset ; offset++) {
 		/* Ok, do the async read-ahead now */
+		//if (swp_type(entry) == 0)
+			//continue;
 		page = __read_swap_cache_async(
 			swp_entry(swp_type(entry), offset),
 			gfp_mask, vma, addr, &page_allocated);
@@ -697,6 +700,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 			if (offset != entry_offset) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
+				if (swp_type(entry) == 0) {
+					count_vm_event(ZRAM_RA);
+				}
+				else {
+					count_vm_event(FLASH_RA);
+				}	
 			}
 		}
 		put_page(page);
@@ -849,6 +858,7 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 	if (ra_info.win == 1)
 		goto skip;
 
+	count_vm_event(SWAP_RA_CNT);
 	blk_start_plug(&plug);
 	for (i = 0, pte = ra_info.ptes; i < ra_info.nr_pte;
 	     i++, pte++) {
@@ -860,6 +870,8 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		entry = pte_to_swp_entry(pentry);
 		if (unlikely(non_swap_entry(entry)))
 			continue;
+		//if (swp_type(entry) == 0)
+			//continue;
 		page = __read_swap_cache_async(entry, gfp_mask, vma,
 					       vmf->address, &page_allocated);
 		if (!page)
@@ -869,6 +881,12 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 			if (i != ra_info.offset) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
+				if (swp_type(entry) == 0) {
+				count_vm_event(ZRAM_RA);
+				}
+				else {
+					count_vm_event(FLASH_RA);
+				}
 			}
 		}
 		put_page(page);
