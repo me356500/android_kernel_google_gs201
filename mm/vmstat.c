@@ -1358,6 +1358,7 @@ const char * const vmstat_text[] = {
 	"window_two",
 	"window_four",
 	"window_eight",
+	"overflow_page",
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",
