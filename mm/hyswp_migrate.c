@@ -54,6 +54,7 @@ bool get_ra_page_age = 0;
 unsigned old_page_threshold = 1000000;
 bool shatter_prefetch_bio = 0;
 bool prefetch_sync = 0;
+bool print_log = 0;
 
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
@@ -74,6 +75,7 @@ module_param_named(old_page_threshold, old_page_threshold, uint, 0644);
 module_param_named(get_ra_page_age, get_ra_page_age, bool, 0644);
 module_param_named(shatter_prefetch_bio, shatter_prefetch_bio, bool, 0644);
 module_param_named(prefetch_sync, prefetch_sync, bool, 0644);
+module_param_named(print_log, print_log, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -1578,7 +1580,7 @@ static int hyswp_migrate(void *p)
 		}
 		scan_mm_swap_page_count(); // only for statistic, not do any migration
 
-		if (show_fault_distribution && scan_round >= 3)
+		if (print_log && show_fault_distribution && scan_round >= 3)
 			show_mm_distribution();
 
 #ifdef swap_alloc_swap_ra_enable
@@ -1589,7 +1591,8 @@ static int hyswp_migrate(void *p)
 		//set_app_ra_vma_window();
 		set_vma_window();
 
-		show_info(); // print log
+		if (print_log)
+			show_info(); // print log
 		schedule_timeout_interruptible(scan_secs * HZ);
 	}
 	return 0;

@@ -925,7 +925,6 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 	bool readhole = 0;
 	unsigned long pf_seq_id = 0, ra_seq_id = 0;
-	int ra_page_pid = -1;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -1049,9 +1048,9 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			continue;
 		}
 		// read unused slot (hole)
-		if (readahead_unused_slot) {
-			readhole = __swp_swapcount(swp_entry(swp_type(entry), offset)) == 0;
-		}
+		//if (readahead_unused_slot) {
+		//	readhole = __swp_swapcount(swp_entry(swp_type(entry), offset)) == 0;
+		//}
 		virt_prefetch++;
 		/* Ok, do the async read-ahead now */
 		page = __read_swap_cache_async(swp_entry(swp_type(entry), offset), gfp_mask, vma,
@@ -1083,23 +1082,23 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						SetPageSameVMA(page);				
 					}
 					// drop diff vma page
-					else if (drop_diff_vma_page && vma_cur && vma_tmp && vma_cur != vma_tmp) {
-						count_vm_event(DROP_DIFF_VMA_PAGE);
-						SetPageDropPage(page);
-					}
+					//else if (drop_diff_vma_page && vma_cur && vma_tmp && vma_cur != vma_tmp) {
+					//	count_vm_event(DROP_DIFF_VMA_PAGE);
+					//	SetPageDropPage(page);
+					//}
 					// drop diff pid page
-					if (drop_diff_pid_page && page_pid != -1 && vma_tmp && vma_tmp->vm_mm && vma_tmp->vm_mm->owner) {
-						ra_page_pid = vma_tmp->vm_mm->owner->pid;
-						if (ra_page_pid != page_pid) {
-							count_vm_event(DROP_DIFF_PID_PAGE);
-							SetPageDropPage(page);
-						}
-					}
+					//if (drop_diff_pid_page && page_pid != -1 && vma_tmp && vma_tmp->vm_mm && vma_tmp->vm_mm->owner) {
+					//	ra_page_pid = vma_tmp->vm_mm->owner->pid;
+					//	if (ra_page_pid != page_pid) {
+					//		count_vm_event(DROP_DIFF_PID_PAGE);
+					//		SetPageDropPage(page);
+					//	}
+					//}
 				}
 				// get ra page age
-				if (get_ra_page_age && pf_seq_id > ra_seq_id) {
-					set_page_age((pf_seq_id - ra_seq_id));
-				}
+				//if (get_ra_page_age && pf_seq_id > ra_seq_id) {
+				//	set_page_age((pf_seq_id - ra_seq_id));
+				//}
 				// old page threshold
 				if (ra_seq_id + old_page_threshold < pf_seq_id) {
 					count_vm_event(SWAP_RA_OLD_PAGE);
@@ -1129,15 +1128,15 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				io_count++;
 			}
 			// drop unused slot
-			if (readahead_unused_slot && readhole) {
-				count_vm_event(SWAP_RA_HOLE);
-				SetPageDropPage(page);
-			}
+			//if (readahead_unused_slot && readhole) {
+			//	count_vm_event(SWAP_RA_HOLE);
+			//	SetPageDropPage(page);
+			//}
 			// disable bio merge
-			if (shatter_prefetch_bio) {
-				blk_finish_plug(&plug);
-				blk_start_plug(&plug);
-			}
+			//if (shatter_prefetch_bio) {
+			//	blk_finish_plug(&plug);
+			//	blk_start_plug(&plug);
+			//}
 		}
 		readra++;
 		put_page(page);
