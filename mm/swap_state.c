@@ -1052,6 +1052,13 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		if (readahead_unused_slot) {
 			readhole = __swp_swapcount(swp_entry(swp_type(entry), offset)) == 0;
 		}
+		// overflow prefetch same vma page
+		if (overflow_same_vma_page && offset > pre_end_offset) {
+			vma_tmp = get_swap_vma(si, offset);
+			// skip diff vma page
+			if (vma_tmp != vma_cur)
+				continue;
+		}
 		virt_prefetch++;
 		/* Ok, do the async read-ahead now */
 		page = __read_swap_cache_async(swp_entry(swp_type(entry), offset), gfp_mask, vma,
