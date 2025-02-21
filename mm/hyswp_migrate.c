@@ -55,6 +55,7 @@ unsigned old_page_threshold = 1000000;
 bool shatter_prefetch_bio = 0;
 bool prefetch_sync = 0;
 bool print_log = 0;
+bool overflow_same_vma_page = 0;
 
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
@@ -76,6 +77,7 @@ module_param_named(get_ra_page_age, get_ra_page_age, bool, 0644);
 module_param_named(shatter_prefetch_bio, shatter_prefetch_bio, bool, 0644);
 module_param_named(prefetch_sync, prefetch_sync, bool, 0644);
 module_param_named(print_log, print_log, bool, 0644);
+module_param_named(overflow_same_vma_page, overflow_same_vma_page, bool, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -1301,6 +1303,16 @@ void print_swap_ra_log(void)
 	sprintf(msg, "app_flash_ra_same_vma_hit");
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_flash_ra_same_vma_hit[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	sprintf(msg, "app_zram_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_swap_in_zram[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	sprintf(msg, "app_flash_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_swap_in_flash[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
 	/* avg swap_ra size */
