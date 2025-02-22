@@ -1078,6 +1078,15 @@ void print_swap_ra_log(void)
 		sprintf(msg, "%s, %u", msg, app_flash_ra[i]);
 	printk("ycc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
+	sprintf(msg, "app_zram_swpin");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_swap_in_zram[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	sprintf(msg, "app_flash_swpin");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_swap_in_flash[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
 	/* avg swap_ra size */
 	/* section 2-b: major of swap-in doesn't prefetch */
 	sprintf(msg, "swap_in_prefetch no_prefetch > prefetch");
