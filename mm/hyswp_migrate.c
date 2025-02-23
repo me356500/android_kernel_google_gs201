@@ -201,7 +201,15 @@ atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot], app_ra_wi
 atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_ra_window[total_proc_slot],
 	proc_ra_vma[total_proc_slot], proc_ra_vma_hit[total_proc_slot], proc_ra_vma_window[total_proc_slot];
 
+atomic_long_t app_ra_cnt[total_app_slot], app_ec_ra[total_app_slot], app_vma_ra[total_app_slot];
 atomic_long_t ra_page_age[12];
+
+void put_app_ra_cnt(int app_uid) {
+	if (app_uid >= 10220 && app_uid < 10245) {
+		int slot = app_uid % total_app_slot;
+		atomic_long_inc(&app_ra_cnt[slot]);
+	}
+}
 
 void set_page_age(int age) {
 	if (age < 100)
@@ -422,6 +430,10 @@ void put_swap_ra_count(int app_uid, int app_pid, int ra_hit_flag, int swap_type)
 			atomic_long_inc(&app_ra_vma[slot]);
 		else if (ra_hit_flag == 3)
 			atomic_long_inc(&app_ra_vma_hit[slot]);
+		else if (ra_hit_flag == 4) 
+			atomic_long_inc(&app_ec_ra[slot]);
+		else if (ra_hit_flag == 5)
+			atomic_long_inc(&app_vma_ra[slot]);
 	}
 	if (app_pid >= 0 && app_pid < total_proc_slot) {
 		if (ra_hit_flag == 1)
@@ -1305,14 +1317,28 @@ void print_swap_ra_log(void)
 		sprintf(msg, "%s, %u", msg, app_flash_ra_same_vma_hit[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
+	/* section 4.1: fig.10 */
 	sprintf(msg, "app_zram_ra");
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_swap_in_zram[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
-
 	sprintf(msg, "app_flash_ra");
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_swap_in_flash[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	/* section 4.3: fig.11 */
+	sprintf(msg, "app_ra_cnt");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_ra_cnt[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	sprintf(msg, "app_ec_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_ec_ra[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	sprintf(msg, "app_vma_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_vma_ra[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
 	/* avg swap_ra size */
@@ -1524,6 +1550,9 @@ static int hyswp_migrate(void *p)
 		atomic_long_set(&app_ra_vma[i], 1);
 		atomic_long_set(&app_ra_vma_hit[i], 0);
 		atomic_long_set(&app_ra_vma_window[i], 4);
+		atomic_long_set(&app_ec_ra[i], 0);
+		atomic_long_set(&app_vma_ra[i], 0);
+		atomic_long_set(&app_ra_cnt[i], 0);
 		/* app swap in pattern */
 		atomic_long_set(&app_swap_in_zram[i], 0);
 		atomic_long_set(&app_swap_in_flash[i], 0);

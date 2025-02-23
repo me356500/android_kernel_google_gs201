@@ -936,6 +936,9 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (per_app_vma_prefetch && swp_type(entry) == 0)
 		goto skip;
 
+	//
+	put_app_ra_cnt(page_uid);
+
 	// get pf swap out seq_id & pf vma
 	if (swp_type(entry) == 1) {
 		pf_seq_id = si->rmap[entry_offset].seq_id;
@@ -1124,6 +1127,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
+
+				if (offset <= pre_end_offset)
+					put_swap_ra_count(page_uid, page_pid, 4, swp_type(entry));
+				else
+					put_swap_ra_count(page_uid, page_pid, 5, swp_type(entry));
 			}
 			if (swp_type(entry) != 0) {
 				actual_prefetch++;
