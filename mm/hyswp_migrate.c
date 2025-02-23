@@ -122,16 +122,16 @@ atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot],
 	proc_ra_window[total_proc_slot];
 
 
-// void put_app_swap_in_pattern(int page_uid, unsigned si_type)
-// {
-// 	if (page_uid >= 10220 && page_uid < 10245) {
-// 		int slot = page_uid % total_app_slot;
-// 		if (!si_type)
-// 			atomic_long_inc(&app_swap_in_zram[slot]);
-// 		else
-// 			atomic_long_inc(&app_swap_in_flash[slot]);
-// 	}
-// }
+void put_app_swap_in_pattern(int page_uid, unsigned si_type)
+{
+	if (page_uid >= 10220 && page_uid < 10245) {
+ 		int slot = page_uid % total_app_slot;
+ 		if (!si_type)
+ 			atomic_long_inc(&app_swap_in_zram[slot]);
+ 		else
+ 			atomic_long_inc(&app_swap_in_flash[slot]);
+ 	}
+}
 
 // statistic init
 static void init_statistic()
@@ -797,7 +797,8 @@ void print_swap_lifetime_log(void)
 
 static void show_info()
 {
-	// char msg[1024] = { 0 };
+	int i = 0;
+	char msg[1024] = { 0 };
 	// int i, j;
 	// i = j = 0;
 	// return;
@@ -827,6 +828,18 @@ static void show_info()
 	// 	sprintf(msg, "%s, %u", msg, app_workingset_activate_ratio[i]);
 	// }
 	// printk("ycc hyswp_info scan_round(%d), %s", scan_round, msg);
+
+	/* section 4.1: fig.10 */
+	spin_lock(&distribution_lock);
+	sprintf(msg, "app_zram_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_swap_in_zram[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	sprintf(msg, "app_flash_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_swap_in_flash[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	spin_unlock(&distribution_lock);
 
 	print_swap_lifetime_log();
 

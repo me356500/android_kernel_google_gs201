@@ -453,6 +453,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 	if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	
+	put_app_swap_in_pattern(page_uid, swp_type(entry));
 	/* get zram access time */
 	if (page_uid >= 10200 && page_uid < 10250) {
 		unsigned acc_time, lifetime;
@@ -799,11 +800,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	blk_start_plug(&plug);
 	for (offset = start_offset; offset <= end_offset ; offset++) {
 
-		// if(swp_type(entry)==0){
-		// 	// ycc modify : skip zram_ra
+		if(swp_type(entry)==0){
+		 	// ycc modify : skip zram_ra
 		// 	skipra++;
-		// 	continue;
-		// }
+		 	continue;
+		}
 		
 		/* Ok, do the async read-ahead now */
 		page = __read_swap_cache_async(
