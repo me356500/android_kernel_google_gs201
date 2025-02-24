@@ -495,16 +495,17 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		// else
 		// 	count_vm_event(SWPIN_ZRAM);
 
-		put_app_swap_in_pattern(page_uid, si_type);
+		if (print_log)
+			put_app_swap_in_pattern(page_uid, si_type);
 		if (swp_type(entry)) // mark: temp to count page fault in zram,swp
 			count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
 		else
 			count_vm_event(THP_SWPOUT); // page fault on flash
 		/* page fault in which mm_struct */
-		if (show_fault_distribution)
+		if (print_log && show_fault_distribution)
 			put_mm_fault_distribution(refault_activate_ratio);
 		/* get zram access time */
-		if (fault_zram_acc_time && page_uid >= 10200 && page_uid < 10250) {
+		if (print_log && fault_zram_acc_time && page_uid >= 10200 && page_uid < 10250) {
 			unsigned acc_time, lifetime, avg_lifetime;
 			bool long_lifetime = false;
 			if (si && !swp_type(entry)) {
@@ -937,7 +938,8 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		goto skip;
 
 	//
-	put_app_ra_cnt(page_uid);
+	if (print_log)
+		put_app_ra_cnt(page_uid);
 
 	// get pf swap out seq_id & pf vma
 	if (swp_type(entry) == 1) {
@@ -1127,11 +1129,13 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
-
-				if (offset <= pre_end_offset)
-					put_swap_ra_count(page_uid, page_pid, 4, swp_type(entry));
-				else
-					put_swap_ra_count(page_uid, page_pid, 5, swp_type(entry));
+				
+				if (print_log) {
+					if (offset <= pre_end_offset)
+						put_swap_ra_count(page_uid, page_pid, 4, swp_type(entry));
+					else
+						put_swap_ra_count(page_uid, page_pid, 5, swp_type(entry));
+				}
 			}
 			if (swp_type(entry) != 0) {
 				actual_prefetch++;

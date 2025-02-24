@@ -98,4 +98,5 @@ extern bool shatter_prefetch_bio;
 extern bool prefetch_sync;
 extern bool overflow_same_vma_page;
 extern void put_app_ra_cnt(int app_uid);
+extern bool print_log;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */
