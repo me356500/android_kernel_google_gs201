@@ -453,7 +453,8 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 	if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	
-	put_app_swap_in_pattern(page_uid, swp_type(entry));
+	if (!page)
+		put_app_swap_in_pattern(page_uid, swp_type(entry));
 	/* get zram access time */
 	if (page_uid >= 10200 && page_uid < 10250) {
 		unsigned acc_time, lifetime;
