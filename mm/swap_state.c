@@ -505,8 +505,8 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		// 	count_vm_event(SWPIN_FLASH); // need to flash ROM to mobile upon adding parameters to /proc/vmstat
 		// else
 		// 	count_vm_event(SWPIN_ZRAM);
-
-		put_app_swap_in_pattern(page_uid, si_type);
+		if (!page)
+			put_app_swap_in_pattern(page_uid, si_type);
 		if (swp_type(entry)) // mark: temp to count page fault in zram,swp
 			count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
 		else
