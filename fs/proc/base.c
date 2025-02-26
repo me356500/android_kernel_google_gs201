@@ -100,7 +100,7 @@
 #include <trace/events/oom.h>
 #include "internal.h"
 #include "fd.h"
-
+#include <linux/hyswp_migrate.h>
 #include "../../lib/kstrtox.h"
 
 /* NOTE:
@@ -1065,6 +1065,10 @@ static int __set_oom_adj(struct file *file, int oom_adj, bool legacy)
 	task = get_proc_task(file_inode(file));
 	if (!task)
 		return -ESRCH;
+
+	// get foreground app pid
+	if (!oom_adj)
+		fg_app_pid = task_pid_nr(task);
 
 	mutex_lock(&oom_adj_mutex);
 	if (legacy) {

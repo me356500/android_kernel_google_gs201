@@ -56,6 +56,9 @@ bool shatter_prefetch_bio = 0;
 bool prefetch_sync = 0;
 bool print_log = 0;
 bool overflow_same_vma_page = 0;
+// restore app window
+bool restore_bg_app_window = 0;
+unsigned restore_window = 8;
 
 module_param_named(fixed_prefetch, fixed_prefetch, bool, 0644);
 module_param_named(prefetch_window_size, prefetch_window_size, uint, 0644);
@@ -78,6 +81,8 @@ module_param_named(shatter_prefetch_bio, shatter_prefetch_bio, bool, 0644);
 module_param_named(prefetch_sync, prefetch_sync, bool, 0644);
 module_param_named(print_log, print_log, bool, 0644);
 module_param_named(overflow_same_vma_page, overflow_same_vma_page, bool, 0644);
+module_param_named(restore_bg_app_window, restore_bg_app_window, bool, 0644);
+module_param_named(restore_window, restore_window, uint, 0644);
 /* hybrid swap setting: module parameter */
 static bool hyswp_enable = false, hyswp_migrate_enable = false;
 /* sensitivity study */
@@ -91,6 +96,9 @@ module_param_named(hyswp_migrate_enable, hyswp_migrate_enable, bool, 0644);
 module_param_named(cold_app_threshold, cold_app_threshold, uint, 0644);
 module_param_named(dormant_page_threshold, dormant_page_threshold, uint, 0644);
 module_param_named(dormant_page_th_devide, dormant_page_th_devide, uint, 0644);
+
+/* foreground app */
+int fg_app_pid, restore_app_pid;
 
 bool get_hyswp_enable_flag(void)
 {
@@ -290,11 +298,19 @@ unsigned get_app_ra_window(int app_uid, int app_pid)
 	unsigned ra_window = 1;
 	if (app_uid >= 10220 && app_uid < 10245) {
 		int slot = app_uid % total_app_slot;
+		if (restore_bg_app_window && app_pid == fg_app_pid && app_pid != restore_app_pid) {
+			atomic_long_set(&app_ra_window[slot], restore_window);
+			restore_app_pid = app_pid;
+		} 
 		ra_window = atomic_long_read(&app_ra_window[slot]);
 		return ra_window;
 	}
 	if (app_pid >= 0 && app_pid < total_proc_slot) {
 		ra_window = atomic_long_read(&proc_ra_window[app_pid]);
+		if (restore_bg_app_window && app_pid == fg_app_pid && app_pid != restore_app_pid) {
+			atomic_long_set(&proc_ra_window[app_pid], restore_window);
+			restore_app_pid = app_pid;
+		}
 		return ra_window;
 	}
 	return ra_window;

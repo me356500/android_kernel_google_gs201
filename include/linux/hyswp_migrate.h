@@ -79,6 +79,9 @@ extern unsigned long long comp_page;
 extern unsigned long long res_page;
 extern unsigned long long swp_out_page;
 
+/* foreground app */
+extern int fg_app_pid;
+
 extern bool fixed_prefetch;
 extern unsigned prefetch_window_size;
 extern bool per_app_vma_prefetch;
