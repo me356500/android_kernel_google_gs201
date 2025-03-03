@@ -379,10 +379,14 @@ swp_entry_t get_swap_page(struct page *page)
 			else if(vma&&vma->vm_mm){
 				printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			}
-			refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
+			if (vma && vma->vm_mm && vma->vm_mm->nr_anon_fault) {
+				refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
+				anon_size=get_mm_counter(vma->vm_mm, MM_ANONPAGES);  // unit : page
+				swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
+			}
+			
 
-			anon_size=get_mm_counter(vma->vm_mm,MM_ANONPAGES);  // unit : page
-			swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
+			
 
 			// if(page_uid>=10200&&page_uid<=10245){ // print anon size log
 			// 	printk("ycc swp_out %u %lu %u %u %u",page_uid, anon_size+swap_size, refault_ratio, anon_size, swap_size);
