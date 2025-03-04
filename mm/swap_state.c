@@ -24,6 +24,7 @@
 #include <linux/shmem_fs.h>
 #include "internal.h"
 #include <linux/hyswp_migrate.h> // ycc add
+#include <linux/frontswap.h>
 /*
  * swapper_space is a fiction, retained to simplify the path through
  * vmscan's shrink_page_list.
@@ -429,7 +430,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 {
 	struct page *page;
 	struct swap_info_struct *si;
-
+	unsigned long entry_offset = swp_offset(entry);
 	/*select uid to swap*/
 	unsigned long page_uid;
 
@@ -444,9 +445,9 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 	if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	if (!page)
-		put_app_swap_in_pattern(page_uid, swp_type(entry), 1);
+		put_app_swap_in_pattern(page_uid, !frontswap_test(si, entry_offset), 1);
 	else 
-		put_app_swap_in_pattern(page_uid, swp_type(entry), 0);
+		put_app_swap_in_pattern(page_uid, !frontswap_test(si, entry_offset), 0);
 	// ycc modify
 	//printk("ycc swp_offset %llu swp_type %llu pfn %llu uid %llu",swp_offset(entry),swp_type(entry),PFN_DOWN(addr),page_uid);
 
