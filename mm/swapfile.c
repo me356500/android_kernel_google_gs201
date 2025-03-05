@@ -1083,7 +1083,7 @@ start_over:
 		// zram total avail_page 786432(3G), zram+swp 1835000(7G) 
 		if(plist_node_empty(&si->avail_lists[node])||plist_node_empty(&next->avail_lists[node])){
 			NotDegrade=1;
-			printk("ycc zram_empty or !next work");
+			//printk("ycc zram_empty or !next work");
 		}
 		if(!plist_node_empty(&next->avail_lists[node])&&!NotDegrade){
 			spin_lock(&swap_avail_lock);

@@ -489,7 +489,7 @@ int workingset_refault(struct page *page, void *shadow) // ycc modify
 	// ycc modify
 	// printk("ycc refault %u %lu %lu",file,refault_distance,workingset_size);
 	if(!file){
-		printk("ycc refault %u %lu %lu",refault_distance>workingset_size,refault_distance,workingset_size);
+		//printk("ycc refault %u %lu %lu",refault_distance>workingset_size,refault_distance,workingset_size);
 		// anon_vma = page_get_anon_vma(page);
 		// if (anon_vma){
 		// 	pgoff_start = page_to_pgoff(page);

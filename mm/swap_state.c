@@ -445,7 +445,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma,
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	
 	// ycc modify
-	printk("ycc swp_offset %llu swp_type %llu pfn %llu uid %llu",swp_offset(entry),swp_type(entry),PFN_DOWN(addr),page_uid);
+	//printk("ycc swp_offset %llu swp_type %llu pfn %llu uid %llu",swp_offset(entry),swp_type(entry),PFN_DOWN(addr),page_uid);
 
 	INC_CACHE_INFO(find_total);
 	if (page) {
@@ -612,7 +612,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		if(vma&&vma->vm_mm){
 			if(refault)
 				vma->vm_mm->nr_anon_refault++;
-			printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+			//printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			vma->vm_mm->nr_anon_fault++;
 		}
 	}
@@ -748,7 +748,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	mask = swapin_nr_pages(offset) - 1;
 
 	// ycc modify cluster
-	mask = 8 - 1; // fix_ra
+	//mask = 8 - 1; // fix_ra
 
 	if (!mask)
 		goto skip;
@@ -796,7 +796,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	}
 	blk_finish_plug(&plug);
 
-	printk("ycc prefetch cluster,%llu,%lu,%lu,%lu,%llu",mask+1,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
+	//printk("ycc prefetch cluster,%llu,%lu,%lu,%lu,%llu",mask+1,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain();	/* Push any new pages onto the LRU now */
 skip:
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll);
@@ -980,7 +980,7 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		put_page(page);
 	}
 	blk_finish_plug(&plug);
-	printk("ycc prefetch vma,%llu,%lu,%lu,%lu,%llu",ra_info.win,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
+	//printk("ycc prefetch vma,%llu,%lu,%lu,%lu,%llu",ra_info.win,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain();
 skip:
 	return read_swap_cache_async(fentry, gfp_mask, vma, vmf->address,

@@ -3666,7 +3666,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 					if(vma&&vma->vm_mm){
 						if(refault)
 							vma->vm_mm->nr_anon_refault++;
-						printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+						//printk("ycc debug %u %u %u %u",vma->vm_mm->owner->pid,vma->vm_mm->nr_anon_refault,vma->vm_mm->nr_anon_fault,vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 						vma->vm_mm->nr_anon_fault++;
 					}
 				}

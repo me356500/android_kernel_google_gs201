@@ -339,7 +339,7 @@ swp_entry_t get_swap_page(struct page *page)
 	zram_usage=get_zram_usage();
 	// hySwpCheck=0; //disable hybrid swap
 	if(hySwpCheck){
-		printk("ycc zram usage, %d",zram_usage);
+		//printk("ycc zram usage, %d",zram_usage);
 		/*select uid to swap*/
 		// anon_vma = page_anon_vma(page);
 		// if (anon_vma){
@@ -374,10 +374,10 @@ swp_entry_t get_swap_page(struct page *page)
 				}
 			if(vma&&vma->vm_mm&&vma->vm_mm->owner&&vma->vm_mm->owner->cred){
 				page_uid = vma->vm_mm->owner->cred->uid.val;
-				printk("ycc mm_struct_refault %u %u %u %u", page_uid, vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+				//printk("ycc mm_struct_refault %u %u %u %u", page_uid, vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			}
 			else if(vma&&vma->vm_mm){
-				printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
+				//printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			}
 			refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
 
