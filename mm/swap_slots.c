@@ -379,7 +379,9 @@ swp_entry_t get_swap_page(struct page *page)
 			else if(vma&&vma->vm_mm){
 				//printk("ycc mm_struct_refault -1 %u %u %u", vma->vm_mm->nr_anon_refault, vma->vm_mm->nr_anon_fault, vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault);
 			}
-			refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
+			// wyc fix/null pointer
+			if (vma && vma->vm_mm && vma->vm_mm->nr_anon_refault)
+				refault_ratio=vma->vm_mm->nr_anon_refault*100/vma->vm_mm->nr_anon_fault;
 
 			anon_size=get_mm_counter(vma->vm_mm,MM_ANONPAGES);  // unit : page
 			swap_size = get_mm_counter(vma->vm_mm, MM_SWAPENTS);
