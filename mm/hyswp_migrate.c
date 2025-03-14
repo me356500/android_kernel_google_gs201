@@ -151,6 +151,7 @@ unsigned long anon_zram_lat = 0, anon_zram_lat_cnt = 0;
 unsigned long zram_in = 0, flash_in = 0;
 /* app swap in pattern */
 atomic_long_t app_swap_in_zram[total_app_slot], app_swap_in_flash[total_app_slot];
+atomic_long_t minor_swap_in_zram[total_app_slot], minor_swap_in_flash[total_app_slot];
 unsigned long app_zram_page_cnt[total_app_slot], app_flash_page_cnt[total_app_slot];
 
 /* swap slot hole effect */
@@ -377,14 +378,22 @@ unsigned get_app_ra_vma_window(int app_uid, int app_pid)
 	return ra_window;
 }
 
-void put_app_swap_in_pattern(int page_uid, unsigned si_type)
+void put_app_swap_in_pattern(int page_uid, unsigned si_type, bool majfault)
 {
 	if (page_uid >= 10220 && page_uid < 10245) {
 		int slot = page_uid % total_app_slot;
-		if (!si_type)
-			atomic_long_inc(&app_swap_in_zram[slot]);
-		else
-			atomic_long_inc(&app_swap_in_flash[slot]);
+		if (majfault) {
+			if (!si_type)
+ 				atomic_long_inc(&app_swap_in_zram[slot]);
+			else
+				atomic_long_inc(&app_swap_in_flash[slot]);
+		}
+		else {
+			if (!si_type)
+				atomic_long_inc(&minor_swap_in_zram[slot]);
+			else
+				atomic_long_inc(&minor_swap_in_flash[slot]);
+		}
 	}
 }
 
@@ -1318,13 +1327,22 @@ void print_swap_ra_log(void)
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
 	/* section 4.1: fig.10 */
-	sprintf(msg, "app_zram_ra");
+	sprintf(msg, "major_zram_swap_in");
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_swap_in_zram[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
-	sprintf(msg, "app_flash_ra");
+	sprintf(msg, "major_flash_swap_in");
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_swap_in_flash[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	sprintf(msg, "minor_zram_swap_in");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, minor_swap_in_zram[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	sprintf(msg, "minor_flash_swap_in");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, minor_swap_in_flash[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
 	/* section 4.3: fig.11 */
@@ -1556,6 +1574,8 @@ static int hyswp_migrate(void *p)
 		/* app swap in pattern */
 		atomic_long_set(&app_swap_in_zram[i], 0);
 		atomic_long_set(&app_swap_in_flash[i], 0);
+		atomic_long_set(&minor_swap_in_zram[i], 0);
+		atomic_long_set(&minor_swap_in_flash[i], 0);
 	}
 
 	for (i = 0; i < total_proc_slot; i++) {
@@ -1619,7 +1639,8 @@ static int hyswp_migrate(void *p)
 				start_zram_idle_migrate(); // evicts dormant page
 			}
 		}
-		scan_mm_swap_page_count(); // only for statistic, not do any migration
+		if (print_log)
+			scan_mm_swap_page_count(); // only for statistic, not do any migration
 
 		if (print_log && show_fault_distribution && scan_round >= 3)
 			show_mm_distribution();

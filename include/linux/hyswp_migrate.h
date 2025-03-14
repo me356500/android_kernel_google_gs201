@@ -53,7 +53,7 @@ extern unsigned long anon_zram_lat, anon_zram_lat_cnt;
 extern void put_swap_ra_count(int app_uid, int app_pid, int ra_hit_flag, int swap_type);
 /* swap on zram or flash */
 extern unsigned long zram_in, flash_in;
-extern void put_app_swap_in_pattern(int page_uid, unsigned si_type);
+extern void put_app_swap_in_pattern(int page_uid, unsigned si_type, bool majfault);
 /* swap slot hole effect */
 extern unsigned long virt_prefetch, actual_prefetch;
 extern unsigned long swap_ra_io, swap_ra_cnt;

@@ -495,8 +495,11 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		// else
 		// 	count_vm_event(SWPIN_ZRAM);
 
-		if (!page && print_log) { // majfault
-			put_app_swap_in_pattern(page_uid, si_type);
+		if (print_log) { 
+			if (!page) 	// major fault
+				put_app_swap_in_pattern(page_uid, si_type, 1);
+			else 		// minor fault
+				put_app_swap_in_pattern(page_uid, si_type, 0);
 		}
 		if (swp_type(entry)) // mark: temp to count page fault in zram,swp
 			count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
