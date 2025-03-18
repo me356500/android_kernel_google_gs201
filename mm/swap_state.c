@@ -941,6 +941,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (per_app_vma_prefetch && swp_type(entry) == 0)
 		goto skip;
 
+	// disable BG app prefetch
+	if (disable_BG_app_prefetch && page_uid > 10220 && page_uid <= 10250 && fg_page_uid > 10220 && fg_page_uid <= 10250 && page_uid != fg_page_uid) {
+		count_vm_event(SWAP_RA_BG_APP);
+		goto skip;
+	} 
+
 	//
 	if (print_log)
 		put_app_ra_cnt(page_uid);
