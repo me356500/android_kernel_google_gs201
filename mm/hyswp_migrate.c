@@ -50,8 +50,10 @@ bool readahead_unused_slot = 0;
 bool skip_zram_ra = 0;
 bool drop_old_page = 0;
 bool skip_old_page = 0;
+bool skip_new_page = 0;
 bool get_ra_page_age = 0;
 unsigned old_page_threshold = 1000000;
+unsigned new_page_threshold = 50000;
 bool shatter_prefetch_bio = 0;
 bool prefetch_sync = 0;
 bool print_log = 0;
@@ -72,7 +74,9 @@ module_param_named(readahead_unused_slot, readahead_unused_slot, bool, 0644);
 module_param_named(skip_zram_ra, skip_zram_ra, bool, 0644);
 module_param_named(drop_old_page, drop_old_page, bool, 0644);
 module_param_named(skip_old_page, skip_old_page, bool, 0644);
+module_param_named(skip_new_page, skip_new_page, bool, 0644);
 module_param_named(old_page_threshold, old_page_threshold, uint, 0644);
+module_param_named(new_page_threshold, new_page_threshold, uint, 0644);
 module_param_named(get_ra_page_age, get_ra_page_age, bool, 0644);
 module_param_named(shatter_prefetch_bio, shatter_prefetch_bio, bool, 0644);
 module_param_named(prefetch_sync, prefetch_sync, bool, 0644);
@@ -1639,8 +1643,8 @@ static int hyswp_migrate(void *p)
 				start_zram_idle_migrate(); // evicts dormant page
 			}
 		}
-		if (print_log)
-			scan_mm_swap_page_count(); // only for statistic, not do any migration
+		
+		scan_mm_swap_page_count(); // only for statistic, not do any migration
 
 		if (print_log && show_fault_distribution && scan_round >= 3)
 			show_mm_distribution();

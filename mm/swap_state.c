@@ -1032,8 +1032,6 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		// reach same_vma_window or 50% same vma ratio
 		if (same_vma_tmp >= same_vma_window || (same_vma_tmp - same_vma_cnt) * 2 >= (overflow_cnt)) {
 			// count overflow data without considering valid slot
-			__count_vm_events(EXTEND_RA, overflow_cnt);
-			__count_vm_events(EXTEND_RA_SAME_VMA, same_vma_tmp - same_vma_cnt);
 			end_offset = offset - 1;
 		}
 	}
@@ -1054,6 +1052,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		if (skip_old_page && ra_seq_id + old_page_threshold < pf_seq_id) {
 			swap_ra_break_flag = true;
 			count_vm_event(SWAP_RA_OLD_PAGE);
+			continue;
+		}
+		// skip prefetch new page (diff workingset)
+		if (skip_new_page && pf_seq_id + new_page_threshold < ra_seq_id) {
+			swap_ra_break_flag = true;
+			count_vm_event(SWAP_RA_NEW_PAGE);
 			continue;
 		}
 		// read unused slot (hole)
@@ -1141,11 +1145,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						put_swap_ra_count(page_uid, page_pid, 5, swp_type(entry));
 				}
 			}
-			if (swp_type(entry) != 0) {
+			if (print_log && swp_type(entry) != 0) {
 				actual_prefetch++;
 				actual_ra_read++;
 			}
-			if (swap_ra_break_flag) {
+			if (print_log && swap_ra_break_flag) {
 				swap_ra_break_flag = false;
 				swap_ra_io++;
 				io_count++;
