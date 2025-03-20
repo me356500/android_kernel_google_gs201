@@ -1054,16 +1054,19 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}
 		// ra page seq_id
 		ra_seq_id = si->rmap[offset].seq_id;
+		vma_tmp = get_swap_vma(si, offset);
 		// skip prefetch old page
-		if (skip_old_page && ra_seq_id + old_page_threshold < pf_seq_id) {
+		if (skip_old_page && offset <= pre_end_offset && ra_seq_id + old_page_threshold < pf_seq_id) {
 			swap_ra_break_flag = true;
-			count_vm_event(SWAP_RA_OLD_PAGE);
+			if (vma_tmp == vma_cur)
+				count_vm_event(SWAP_RA_OLD_PAGE);
 			continue;
 		}
 		// skip prefetch new page (diff workingset)
-		if (skip_new_page && pf_seq_id + new_page_threshold < ra_seq_id) {
+		if (skip_new_page && offset <= pre_end_offset && pf_seq_id + new_page_threshold < ra_seq_id) {
 			swap_ra_break_flag = true;
-			count_vm_event(SWAP_RA_NEW_PAGE);
+			if (vma_tmp == vma_cur)
+				count_vm_event(SWAP_RA_NEW_PAGE);
 			continue;
 		}
 		// read unused slot (hole)
@@ -1072,7 +1075,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		//}
 		// overflow prefetch same vma page
 		if (overflow_same_vma_page && offset > pre_end_offset) {
-			vma_tmp = get_swap_vma(si, offset);
+			//vma_tmp = get_swap_vma(si, offset);
 			// skip diff vma page
 			if (vma_tmp != vma_cur)
 				continue;
