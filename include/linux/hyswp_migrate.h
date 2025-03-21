@@ -86,6 +86,7 @@ extern bool per_app_ra_prefetch;
 extern bool drop_diff_vma_page;
 extern bool drop_diff_pid_page;
 extern bool extend_large_window;
+extern bool overflow_drop;
 extern unsigned overflow_fixed_window;
 extern bool readahead_unused_slot;
 extern bool skip_zram_ra;
@@ -101,6 +102,5 @@ extern bool prefetch_sync;
 extern bool overflow_same_vma_page;
 extern void put_app_ra_cnt(int app_uid);
 extern bool print_log;
-extern int fg_page_uid;
 extern bool disable_BG_app_prefetch;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

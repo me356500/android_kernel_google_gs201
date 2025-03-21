@@ -930,19 +930,24 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 	bool readhole = 0;
 	unsigned long pf_seq_id = 0, ra_seq_id = 0;
+	int page_oom_score_adj = 0;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	if (vma && vma->vm_mm && vma->vm_mm->owner)
 		page_pid = vma->vm_mm->owner->pid;
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		page_oom_score_adj = vma->vm_mm->owner->signal->oom_score_adj;
+	}
 	
 	// skip zram_ra
 	if (per_app_vma_prefetch && swp_type(entry) == 0)
 		goto skip;
 
 	// disable BG app prefetch
-	if (disable_BG_app_prefetch && page_uid > 10220 && page_uid <= 10250 && fg_page_uid > 10220 && fg_page_uid <= 10250 && page_uid != fg_page_uid) {
+	//if (disable_BG_app_prefetch && page_uid > 10220 && page_uid <= 10250 && page_oom_score_adj != 0) {
+	if (disable_BG_app_prefetch && page_oom_score_adj >= 900) {
 		count_vm_event(SWAP_RA_BG_APP);
 		goto skip;
 	} 
@@ -1036,7 +1041,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}
 
 		// reach same_vma_window or 50% same vma ratio
-		if (same_vma_tmp >= same_vma_window || (same_vma_tmp - same_vma_cnt) * 2 >= (overflow_cnt)) {
+		if (same_vma_tmp >= same_vma_window || (same_vma_tmp - same_vma_cnt) * 2 >= (overflow_cnt) || !overflow_drop) {
 			// count overflow data without considering valid slot
 			end_offset = offset - 1;
 		}
@@ -1054,19 +1059,16 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}
 		// ra page seq_id
 		ra_seq_id = si->rmap[offset].seq_id;
-		vma_tmp = get_swap_vma(si, offset);
 		// skip prefetch old page
 		if (skip_old_page && offset <= pre_end_offset && ra_seq_id + old_page_threshold < pf_seq_id) {
 			swap_ra_break_flag = true;
-			if (vma_tmp == vma_cur)
-				count_vm_event(SWAP_RA_OLD_PAGE);
+			count_vm_event(SWAP_RA_OLD_PAGE);
 			continue;
 		}
 		// skip prefetch new page (diff workingset)
 		if (skip_new_page && offset <= pre_end_offset && pf_seq_id + new_page_threshold < ra_seq_id) {
 			swap_ra_break_flag = true;
-			if (vma_tmp == vma_cur)
-				count_vm_event(SWAP_RA_NEW_PAGE);
+			count_vm_event(SWAP_RA_NEW_PAGE);
 			continue;
 		}
 		// read unused slot (hole)
@@ -1075,7 +1077,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		//}
 		// overflow prefetch same vma page
 		if (overflow_same_vma_page && offset > pre_end_offset) {
-			//vma_tmp = get_swap_vma(si, offset);
+			vma_tmp = get_swap_vma(si, offset);
 			// skip diff vma page
 			if (vma_tmp != vma_cur)
 				continue;
