@@ -213,7 +213,9 @@ atomic_long_t ra_page_age[12];
 
 /* Get FG app pid */
 bool disable_BG_app_prefetch = 0;
+bool disable_oom_adj_prefetch = 0;
 module_param_named(disable_BG_app_prefetch, disable_BG_app_prefetch, bool, 0644);
+module_param_named(disable_oom_adj_prefetch, disable_oom_adj_prefetch, bool, 0644);
 
 void put_app_ra_cnt(int app_uid) {
 	if (app_uid >= 10220 && app_uid < 10245) {

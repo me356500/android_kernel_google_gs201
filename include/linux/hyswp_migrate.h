@@ -103,4 +103,5 @@ extern bool overflow_same_vma_page;
 extern void put_app_ra_cnt(int app_uid);
 extern bool print_log;
 extern bool disable_BG_app_prefetch;
+extern bool disable_oom_adj_prefetch;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */
