@@ -3718,6 +3718,11 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		/* Had to read the page from swap area: Major fault */
 		ret = VM_FAULT_MAJOR;
 		count_vm_event(PGMAJFAULT);
+		// or adj <= 100 
+		if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal && vma->vm_mm->owner->signal->oom_score_adj == 0
+			&& vma->vm_mm->owner->cred && vma->vm_mm->owner->cred->uid.val > 10225 && vma->vm_mm->owner->cred->uid.val <= 10241) {
+			count_vm_event(USER_APP_MAJFAULT);
+		}
 		count_memcg_event_mm(vma->vm_mm, PGMAJFAULT);
 	} else if (PageHWPoison(page)) {
 		/*

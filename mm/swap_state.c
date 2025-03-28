@@ -946,7 +946,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		goto skip;
 
 	// disable BG app prefetch
-	if (disable_BG_app_prefetch && page_uid > 10225 && page_uid <= 10250 && page_oom_score_adj != 0) {
+	if (disable_BG_app_prefetch && page_uid > 10225 && page_uid <= 10241 && page_oom_score_adj > 100) {
 		count_vm_event(SWAP_RA_BG_APP);
 		goto skip;
 	} 
@@ -988,20 +988,21 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 
 	skipra = 0;
 	// add by ycc
-	ra_window_size = mask + 1;
-	total_ra_cnt++;
-	while (ra_window_size) {
-		if (ra_window_size & 1 || ra_flag >= 9)
-			break;
-		ra_window_size >>= 1;
-		ra_flag++;
-	}
-	if (ra_flag >= 0 && ra_flag < 10)
-		total_ra_size_cnt[ra_flag]++;
-
-	if (!mask) {
-		actual_ra_page[1]++;
-		no_prefetch_cnt++;
+	if (print_log) {	
+		ra_window_size = mask + 1;
+		total_ra_cnt++;
+		while (ra_window_size) {
+			if (ra_window_size & 1 || ra_flag >= 9)
+				break;
+			ra_window_size >>= 1;
+			ra_flag++;
+		}
+		if (ra_flag >= 0 && ra_flag < 10)
+			total_ra_size_cnt[ra_flag]++;
+		if (!mask) {
+			actual_ra_page[1]++;
+			no_prefetch_cnt++;
+		}
 	}
 
 	if (!mask)
@@ -1142,6 +1143,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						SetPageDropPage(page);
 					SetPageOldPage(page);
 				}
+				// new page threshold
+				if (pf_seq_id + new_page_threshold < ra_seq_id) {
+					count_vm_event(SWAP_RA_NEW_PAGE);
+				}
+				
 				if (offset > pre_end_offset) {
 					count_vm_event(EXTEND_ACTUAL_RA);
 					SetPageExtend(page);
