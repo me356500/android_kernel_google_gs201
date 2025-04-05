@@ -130,6 +130,7 @@ enum pageflags {
 	PG_extendsamevma,
 	PG_droppage,
 	PG_oldpage,
+	PG_demote,
 #ifdef CONFIG_MMU
 	PG_mlocked,		/* Page is vma mlocked */
 #endif
@@ -426,6 +427,11 @@ PAGEFLAG(Unevictable, unevictable, PF_HEAD)
 PAGEFLAG(Reswapin, reswapin, PF_ANY)
 	__CLEARPAGEFLAG(Reswapin, reswapin, PF_ANY)
 	__SETPAGEFLAG(Reswapin, reswapin, PF_ANY)
+
+// wyc modify
+PAGEFLAG(Demote, demote, PF_ANY)
+	__CLEARPAGEFLAG(Demote, demote, PF_ANY)
+	__SETPAGEFLAG(Demote, demote, PF_ANY)
 
 // wyc modify
 PAGEFLAG(SameVMA, samevma, PF_ANY)

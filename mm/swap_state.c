@@ -476,7 +476,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 
 	// ycc modify
-	if (dev_flag) {
+	if (dev_flag == 1) {
 		unsigned si_type = swp_type(entry);
 		/* swap in log */
 		/* section 3.d: evict correlation */
@@ -567,7 +567,7 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 	}
 
 	INC_CACHE_INFO(find_total);
-	if (page) {
+	if (dev_flag == 1 && page) {
 		bool vma_ra = swap_use_vma_readahead();
 		bool readahead;
 		bool same_vma_ra;

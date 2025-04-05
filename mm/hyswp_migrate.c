@@ -1021,6 +1021,154 @@ static void scan_vma(struct mm_struct *mm, unsigned si_type)
 	mmap_read_unlock(mm);
 }
 
+static void swap_cache_scan_pte(struct vm_area_struct *vma, pmd_t *pmd, unsigned long addr, unsigned long end,
+		     unsigned si_type)
+{
+	struct page *page;
+	swp_entry_t entry;
+	pte_t *pte;
+	struct swap_info_struct *si;
+	unsigned long offset;
+	//volatile unsigned char *swap_map;
+	int ret = 0;
+
+
+	if (si_type <= 1)
+		si = swap_info[si_type];
+	else
+		si = swap_info[0];
+	pte = pte_offset_map(pmd, addr);
+	do {
+		if (!is_swap_pte(*pte))
+			continue;
+		entry = pte_to_swp_entry(*pte);
+		//if (swp_type(entry) != si_type)
+		//	continue;
+
+		offset = swp_offset(entry);
+
+		//if (si->swap_map[offset] != SWAP_HAS_CACHE)
+		//	continue;
+
+		pte_unmap(pte);
+		//swap_map = &si->swap_map[offset];
+		page = lookup_swap_cache(entry, vma, addr, 2);
+		if (!page) {
+			goto try_next;
+		}
+		if (!PageSwapCache(page)) {
+			//printk("wyc not swap cache page\n");
+			continue;
+		}
+		if (!TestClearPageReadahead(page)) {
+			//printk("wyc readahead flag not set\n");
+			continue;
+		}
+		// todo 
+		// buggy: clear page flag, and clear lru list
+
+		lock_page(page);
+		wait_on_page_writeback(page);
+		ret = unuse_pte(vma, pmd, addr, entry, page);
+		if (ret < 0) {
+			unlock_page(page);
+			put_page(page);
+			// goto out;
+			goto try_next;
+		}
+		SetPageDemote(page);
+		//count_vm_event(SWAP_CACHE_DEMOTE);
+		//try_to_free_swap(page);
+		unlock_page(page);
+		put_page(page);
+
+		zram_idle_migration_cnt++;
+
+	try_next:
+		pte = pte_offset_map(pmd, addr);
+	} while (pte++, addr += PAGE_SIZE, addr != end);
+}
+
+static inline void swap_cache_scan_pmd(struct vm_area_struct *vma, pud_t *pud, unsigned long addr,
+			    unsigned long end, unsigned si_type)
+{
+	pmd_t *pmd;
+	unsigned long next;
+
+	pmd = pmd_offset(pud, addr);
+	do {
+		cond_resched();
+		next = pmd_addr_end(addr, end);
+		if (pmd_none_or_trans_huge_or_clear_bad(pmd))
+			continue;
+
+		swap_cache_scan_pte(vma, pmd, addr, next, si_type);
+	} while (pmd++, addr = next, addr != end);
+}
+
+static inline void swap_cache_scan_pud(struct vm_area_struct *vma, p4d_t *p4d, unsigned long addr,
+			    unsigned long end, unsigned si_type)
+{
+	pud_t *pud;
+	unsigned long next;
+
+	pud = pud_offset(p4d, addr);
+	do {
+		next = pud_addr_end(addr, end);
+		if (pud_none_or_clear_bad(pud))
+			continue;
+
+		swap_cache_scan_pmd(vma, pud, addr, next, si_type);
+	} while (pud++, addr = next, addr != end);
+}
+
+static inline void swap_cache_scan_p4d(struct vm_area_struct *vma, pgd_t *pgd, unsigned long addr,
+			    unsigned long end, unsigned si_type)
+{
+	p4d_t *p4d;
+	unsigned long next;
+
+	p4d = p4d_offset(pgd, addr);
+	do {
+		next = p4d_addr_end(addr, end);
+		if (p4d_none_or_clear_bad(p4d))
+			continue;
+
+		swap_cache_scan_pud(vma, p4d, addr, next, si_type);
+	} while (p4d++, addr = next, addr != end);
+}
+
+static void swap_cache_scan_pgd(struct vm_area_struct *vma, unsigned si_type)
+{
+	pgd_t *pgd;
+	unsigned long addr, end, next;
+	addr = vma->vm_start;
+	end = vma->vm_end;
+
+	pgd = pgd_offset(vma->vm_mm, addr);
+	do {
+		next = pgd_addr_end(addr, end);
+		if (pgd_none_or_clear_bad(pgd))
+			continue;
+
+		swap_cache_scan_p4d(vma, pgd, addr, next, si_type);
+	} while (pgd++, addr = next, addr != end);
+}
+
+static void swap_cache_scan_vma(struct mm_struct *mm, unsigned si_type)
+{
+	struct vm_area_struct *vma;
+
+	mmap_read_lock(mm);
+	for (vma = mm->mmap; vma; vma = vma->vm_next) {
+		if (vma->anon_vma) {
+			swap_cache_scan_pgd(vma, si_type);
+		}
+		cond_resched();
+	}
+	mmap_read_unlock(mm);
+}
+
 static void pseudo_scan_vma(struct mm_struct *mm) // unused: count large/small vma
 {
 	struct vm_area_struct *vma;
@@ -1101,10 +1249,12 @@ static void start_zram_migrate() // evicts cold app
 	mmput(prev_mm);
 
 	avg_anon_fault /= mm_cnt;
-	printk("ycc hyswp_migrate: scan_mm(%d), demote_mm(%d), demote_page(%d), demote_1(%d), demote_2(%d), avg_anon_fault(%llu)",
+	if (print_log) {
+		printk("ycc hyswp_migrate: scan_mm(%d), demote_mm(%d), demote_page(%d), demote_1(%d), demote_2(%d), avg_anon_fault(%llu)",
 	       mm_cnt, mm_demote_cnt, page_demote_cnt, mm_demote_1, mm_demote_2, avg_anon_fault);
-	printk("ycc hyswp scan_pmd(%d), scan_vma(%d), large_vma(%d)", PMD_cnt, vma_cnt,
-	       large_vma_cnt);
+		printk("ycc hyswp scan_pmd(%d), scan_vma(%d), large_vma(%d)", PMD_cnt, vma_cnt,
+			large_vma_cnt);
+	}
 }
 
 static void start_zram_idle_migrate() // evicts dormant page
@@ -1158,6 +1308,42 @@ static void start_zram_idle_migrate() // evicts dormant page
 
 	printk("ycc hyswp_migrate: scan_mm(%d), zram_idle_demote_mm(%d), zram_idle_page_demote(%d)",
 	       mm_cnt, mm_demote_cnt, zram_idle_migration_cnt);
+}
+
+static void start_swap_cache_migrate() 
+{
+	struct mm_struct *mm;
+	struct mm_struct *prev_mm;
+	struct list_head *p;
+	zram_idle_migration_cnt = 0;
+	prev_mm = &init_mm;
+	mmget(prev_mm);
+
+	spin_lock(&mmlist_lock);
+	p = &init_mm.mmlist;
+	while ((p = p->next) != &init_mm.mmlist) {
+		mm_uid = -1;
+		mm = list_entry(p, struct mm_struct, mmlist);
+		if (!mmget_not_zero(mm))
+			continue;
+		spin_unlock(&mmlist_lock);
+		mmput(prev_mm);
+		prev_mm = mm;
+
+		if (mm && mm->owner && mm->owner->cred)
+			mm_uid = mm->owner->cred->uid.val;
+		if (mm && mm->owner && mm->owner->signal &&
+		    mm->owner->signal->oom_score_adj >= 900 && mm_uid >= 10224 && mm_uid < 10241) {
+				swap_cache_scan_vma(mm, flash_dev);
+		}
+
+		cond_resched();
+		spin_lock(&mmlist_lock);
+	}
+	spin_unlock(&mmlist_lock);
+	mmput(prev_mm);
+
+	printk("wyc migrate: demote_ra_page(%d)",zram_idle_migration_cnt);
 }
 
 static void scan_mm_swap_page_count() // not do any migration, count zram and flash page in each mm
@@ -1649,6 +1835,7 @@ static int hyswp_migrate(void *p)
 				zram_idle_migration_flag = false;
 				start_zram_migrate(); // evicts cold app
 				start_zram_idle_migrate(); // evicts dormant page
+				start_swap_cache_migrate(); // evicts swap cache
 			}
 		}
 		

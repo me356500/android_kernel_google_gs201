@@ -1376,6 +1376,7 @@ const char * const vmstat_text[] = {
 	"drop_old_page", // add by wyc
 	"swap_ra_bg_app", // add by wyc
 	"user_app_majfault", // add by wyc
+	"swap_cache_demote", // add by wyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",
