@@ -619,6 +619,14 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			count_vm_event(SWAP_RA_OLD_PAGE_HIT);
 			ClearPageDropPage(page);
 		}
+
+		if (TestClearPageUserPage(page)) {
+			count_vm_event(USER_APP_RA_HIT);
+		}
+
+		if (TestClearPageSysPage(page)) {
+			count_vm_event(SYSTEM_RA_HIT);
+		}
 	}
 
 	return page;
@@ -1159,6 +1167,16 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 				count_vm_event(SWAP_RA);
 				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
 				
+				// analyze sys prefetch
+				if (page_uid >= 10220 && page_uid < 10245) {
+					SetPageUserPage(page);
+					count_vm_event(USER_APP_RA);
+				}
+				else if (page_pid >= 0 && page_pid < 10000) {
+					SetPageSysPage(page);
+					count_vm_event(SYSTEM_RA);
+				}
+						
 				if (print_log) {
 					if (offset <= pre_end_offset)
 						put_swap_ra_count(page_uid, page_pid, 4, swp_type(entry));

@@ -128,7 +128,9 @@
 	{1UL << PG_extend, "extend"},	\
 	{1UL << PG_extend, "extendsamevma"},	\
 	{1UL << PG_droppage, "dropold"},	\
-	{1UL << PG_oldpage, "oldpage"}	\
+	{1UL << PG_oldpage, "oldpage"},	\
+	{1UL << PG_syspage, "syspage"},	\
+	{1UL << PG_userpage, "userpage"}	\
 IF_HAVE_PG_MLOCK(PG_mlocked,		"mlocked"	)		\
 IF_HAVE_PG_UNCACHED(PG_uncached,	"uncached"	)		\
 IF_HAVE_PG_HWPOISON(PG_hwpoison,	"hwpoison"	)		\

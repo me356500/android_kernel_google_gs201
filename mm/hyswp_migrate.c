@@ -202,7 +202,7 @@ unsigned long per_app_swap_distribution
 	[page_zram_slot]; // in each app, active page = arr[x][0] + arr[x][1], dormant page = arr[x][2] + arr[x][3]
 
 /* app-based swap readahead*/
-#define total_proc_slot 10000
+#define total_proc_slot 50000
 atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot], app_ra_window[total_app_slot], 
 	app_ra_vma[total_app_slot], app_ra_vma_hit[total_app_slot], app_ra_vma_window[total_app_slot];
 atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_ra_window[total_proc_slot],
