@@ -944,7 +944,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	// skip zram_ra
 	if (per_app_vma_prefetch && swp_type(entry) == 0)
 		goto skip;
-
+		
 	// disable BG app prefetch
 	if (disable_BG_app_prefetch && page_uid > 10225 && page_uid <= 10241 && page_oom_score_adj > 100) {
 		count_vm_event(SWAP_RA_BG_APP);
@@ -955,7 +955,17 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		count_vm_event(SWAP_RA_BG_APP);
 		goto skip;
 	} 
+	// set app switch start signal
+	if ((disable_exec_prefetch || extend_switch_ec_window) && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
+		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
+			app_switch_start();
+		}	
+	}
 
+	if (disable_exec_prefetch && atomic_read(&signal_app_switch) == 0) {
+		count_vm_event(SWAP_RA_EXECUTE);
+		goto skip;
+	}
 	//
 	if (print_log)
 		put_app_ra_cnt(page_uid);
@@ -984,6 +994,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	// overflow lookahead limit (default 16)
 	if (overflow_fixed_window) {
 		window_limit = overflow_fixed_window - 1;
+	}
+	// extend switch ec window
+	if (extend_switch_ec_window && atomic_read(&signal_app_switch) == 1) {
+		mask = (mask + 1) * extend_switch_ec_window_size - 1;
 	}
 
 	skipra = 0;
@@ -1210,6 +1224,11 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		swap_ra_cnt++;
 	lru_add_drain();	/* Push any new pages onto the LRU now */
 skip:
+	// update oom_score_adj
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		vma->vm_mm->prev_oom_score_adj = page_oom_score_adj;
+	}
+	
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll, skip_cnt);
 }
 
