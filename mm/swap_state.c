@@ -1172,7 +1172,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 					SetPageUserPage(page);
 					count_vm_event(USER_APP_RA);
 				}
-				else if (page_pid >= 0 && page_pid < 10000) {
+				else if (page_pid >= 0 && page_pid < 100000) {
 					SetPageSysPage(page);
 					count_vm_event(SYSTEM_RA);
 				}
