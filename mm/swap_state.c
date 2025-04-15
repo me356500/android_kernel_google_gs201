@@ -962,6 +962,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		}	
 	}
 
+	if (disable_system_prefetch && page_oom_score_adj < 0) {
+		goto skip;
+	}
+
 	if (disable_exec_prefetch && atomic_read(&signal_app_switch) == 0) {
 		count_vm_event(SWAP_RA_EXECUTE);
 		goto skip;
