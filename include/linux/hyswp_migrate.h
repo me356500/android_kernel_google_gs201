@@ -79,6 +79,9 @@ extern unsigned long long comp_page;
 extern unsigned long long res_page;
 extern unsigned long long swp_out_page;
 
+/* */
+extern void app_switch_start(void);
+
 extern bool fixed_prefetch;
 extern unsigned prefetch_window_size;
 extern bool per_app_vma_prefetch;
@@ -102,6 +105,13 @@ extern bool prefetch_sync;
 extern bool overflow_same_vma_page;
 extern void put_app_ra_cnt(int app_uid);
 extern bool print_log;
+extern int prev_pid;
+extern atomic_t signal_app_switch;
 extern bool disable_BG_app_prefetch;
 extern bool disable_oom_adj_prefetch;
+extern bool disable_exec_prefetch;
+extern bool extend_switch_ec_window;
+extern int extend_switch_ec_window_size;
+extern bool disable_system_prefetch;
+extern bool detect_switch;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

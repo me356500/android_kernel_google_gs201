@@ -16,6 +16,7 @@
 #include <linux/string.h>
 #include <linux/vmalloc.h>
 #include <linux/swapfile.h>
+#include <linux/workqueue.h>
 
 int hyswp_scan_sec = 30;
 static unsigned short scan_round;
@@ -202,7 +203,7 @@ unsigned long per_app_swap_distribution
 	[page_zram_slot]; // in each app, active page = arr[x][0] + arr[x][1], dormant page = arr[x][2] + arr[x][3]
 
 /* app-based swap readahead*/
-#define total_proc_slot 50000
+#define total_proc_slot 10000
 atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot], app_ra_window[total_app_slot], 
 	app_ra_vma[total_app_slot], app_ra_vma_hit[total_app_slot], app_ra_vma_window[total_app_slot];
 atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_ra_window[total_proc_slot],
@@ -211,11 +212,44 @@ atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot], proc_
 atomic_long_t app_ra_cnt[total_app_slot], app_ec_ra[total_app_slot], app_vma_ra[total_app_slot];
 atomic_long_t ra_page_age[12];
 
-/* Get FG app pid */
+/* disable BG app prefetch */
 bool disable_BG_app_prefetch = 0;
 bool disable_oom_adj_prefetch = 0;
 module_param_named(disable_BG_app_prefetch, disable_BG_app_prefetch, bool, 0644);
 module_param_named(disable_oom_adj_prefetch, disable_oom_adj_prefetch, bool, 0644);
+
+/* Only enable switch prefetch */
+int prev_pid = -1;
+atomic_t signal_app_switch = ATOMIC_INIT(0);
+bool disable_exec_prefetch = 0;
+int switch_msec = 5000;
+module_param_named(disable_exec_prefetch, disable_exec_prefetch, bool, 0644);
+module_param_named(switch_msec, switch_msec, int, 0644);
+
+bool disable_system_prefetch = 0;
+module_param_named(disable_system_prefetch, disable_system_prefetch, bool, 0644);
+
+bool detect_switch = 0;
+module_param_named(detect_switch, detect_switch, bool, 0644);
+
+static struct delayed_work app_switch_off_work;
+
+static void turn_off_app_switch_signal(struct work_struct *work) 
+{
+	atomic_set(&signal_app_switch, 0);
+}
+
+void app_switch_start(void)
+{
+	atomic_set(&signal_app_switch, 1);
+	mod_delayed_work(system_wq, &app_switch_off_work, msecs_to_jiffies(switch_msec));
+}
+
+/* extend switch ec window */
+bool extend_switch_ec_window = 0;
+int extend_switch_ec_window_size = 2;
+module_param_named(extend_switch_ec_window, extend_switch_ec_window, bool, 0644);
+module_param_named(extend_switch_ec_window_size, extend_switch_ec_window_size, int, 0644);
 
 void put_app_ra_cnt(int app_uid) {
 	if (app_uid >= 10220 && app_uid < 10245) {
@@ -1691,7 +1725,7 @@ static int __init hyswp_migrate_init(void)
 		pr_err("ycc hyswp_migrate already start.........\n");
 		return 0;
 	}
-
+	INIT_DELAYED_WORK(&app_switch_off_work, turn_off_app_switch_signal);
 	thread = kthread_run(hyswp_migrate, NULL, "hyswp_migrate");
 	if (IS_ERR(thread)) {
 		pr_err("ycc hyswp_migrate failed to start\n");

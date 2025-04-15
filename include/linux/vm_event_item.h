@@ -148,11 +148,14 @@ enum vm_event_item { PGPGIN, PGPGOUT, PSWPIN, PSWPOUT,
 		SWAP_RA_NEW_PAGE,	// add by wyc
 		DROP_OLD_PAGE,	// add by wyc
 		SWAP_RA_BG_APP,	// add by wyc
+		SWAP_RA_EXECUTE,        // add by wyc
 		USER_APP_MAJFAULT,	// add by wyc
 		SYSTEM_RA,	// add by wyc
 		SYSTEM_RA_HIT,	// add by wyc
+		SYSTEM_RA_EXEC_HIT, // add by wyc
 		USER_APP_RA,	// add by wyc
 		USER_APP_RA_HIT,	// add by wyc
+		USER_APP_RA_EXEC_HIT, // add by wyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 		SPECULATIVE_PGFAULT_ANON,

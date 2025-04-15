@@ -1375,11 +1375,14 @@ const char * const vmstat_text[] = {
 	"swap_ra_new_page", // add by wyc
 	"drop_old_page", // add by wyc
 	"swap_ra_bg_app", // add by wyc
+	"swap_ra_execute", // add by wyc
 	"user_app_majfault", // add by wyc
 	"system_ra", 		// add by wyc
 	"system_ra_hit", 	// add by wyc
+	"system_ra_exec_hit", 		// add by wyc
 	"user_app_ra", 		// add by wyc
 	"user_app_ra_hit", 	// add by wyc
+	"user_app_ra_exec_hit", 	// add by wyc
 #endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	"speculative_pgfault",
