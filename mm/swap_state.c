@@ -940,7 +940,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
 		page_oom_score_adj = vma->vm_mm->owner->signal->oom_score_adj;
 	}
-	
+	// set app switch start signal
+	if ((disable_exec_prefetch || extend_switch_ec_window || detect_switch) && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
+		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
+			app_switch_start();
+		}	
+	}
 	// skip zram_ra
 	if (per_app_vma_prefetch && swp_type(entry) == 0)
 		goto skip;
@@ -955,14 +960,9 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		count_vm_event(SWAP_RA_BG_APP);
 		goto skip;
 	} 
-	// set app switch start signal
-	if ((disable_exec_prefetch || extend_switch_ec_window) && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
-		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
-			app_switch_start();
-		}	
-	}
 
 	if (disable_system_prefetch && page_oom_score_adj < 0) {
+		count_vm_event(SWAP_RA_PERSIST_SYS);
 		goto skip;
 	}
 
@@ -1000,7 +1000,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		window_limit = overflow_fixed_window - 1;
 	}
 	// extend switch ec window
-	if (extend_switch_ec_window && atomic_read(&signal_app_switch) == 1) {
+	if (extend_switch_ec_window && atomic_read(&signal_app_switch) == 1 && page_oom_score_adj == 0) {
 		mask = (mask + 1) * extend_switch_ec_window_size - 1;
 	}
 

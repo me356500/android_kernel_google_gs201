@@ -229,6 +229,9 @@ module_param_named(switch_msec, switch_msec, int, 0644);
 bool disable_system_prefetch = 0;
 module_param_named(disable_system_prefetch, disable_system_prefetch, bool, 0644);
 
+bool detect_switch = 0;
+module_param_named(detect_switch, detect_switch, bool, 0644);
+
 static struct delayed_work app_switch_off_work;
 
 static void turn_off_app_switch_signal(struct work_struct *work) 
