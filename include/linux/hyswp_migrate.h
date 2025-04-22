@@ -106,12 +106,15 @@ extern bool overflow_same_vma_page;
 extern void put_app_ra_cnt(int app_uid);
 extern bool print_log;
 extern int prev_pid;
-extern atomic_t signal_app_switch;
+extern bool signal_app_switch;
 extern bool disable_BG_app_prefetch;
 extern bool disable_oom_adj_prefetch;
+extern int disable_oom_adj_prefetch_value;
 extern bool disable_exec_prefetch;
 extern bool extend_switch_ec_window;
 extern int extend_switch_ec_window_size;
+extern bool extend_switch_vc_window;
+extern int extend_switch_vc_window_size;
 extern bool disable_system_prefetch;
 extern bool detect_switch;
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

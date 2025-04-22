@@ -215,12 +215,14 @@ atomic_long_t ra_page_age[12];
 /* disable BG app prefetch */
 bool disable_BG_app_prefetch = 0;
 bool disable_oom_adj_prefetch = 0;
+int disable_oom_adj_prefetch_value = 900;
 module_param_named(disable_BG_app_prefetch, disable_BG_app_prefetch, bool, 0644);
 module_param_named(disable_oom_adj_prefetch, disable_oom_adj_prefetch, bool, 0644);
+module_param_named(disable_oom_adj_prefetch_value, disable_oom_adj_prefetch_value, int, 0644);
 
 /* Only enable switch prefetch */
 int prev_pid = -1;
-atomic_t signal_app_switch = ATOMIC_INIT(0);
+bool signal_app_switch = 0;
 bool disable_exec_prefetch = 0;
 int switch_msec = 5000;
 module_param_named(disable_exec_prefetch, disable_exec_prefetch, bool, 0644);
@@ -236,12 +238,12 @@ static struct delayed_work app_switch_off_work;
 
 static void turn_off_app_switch_signal(struct work_struct *work) 
 {
-	atomic_set(&signal_app_switch, 0);
+	signal_app_switch = 0;
 }
 
 void app_switch_start(void)
 {
-	atomic_set(&signal_app_switch, 1);
+	signal_app_switch = 1;
 	mod_delayed_work(system_wq, &app_switch_off_work, msecs_to_jiffies(switch_msec));
 }
 
@@ -250,6 +252,11 @@ bool extend_switch_ec_window = 0;
 int extend_switch_ec_window_size = 2;
 module_param_named(extend_switch_ec_window, extend_switch_ec_window, bool, 0644);
 module_param_named(extend_switch_ec_window_size, extend_switch_ec_window_size, int, 0644);
+
+bool extend_switch_vc_window = 0;
+int extend_switch_vc_window_size = 10;
+module_param_named(extend_switch_vc_window, extend_switch_vc_window, bool, 0644);
+module_param_named(extend_switch_vc_window_size, extend_switch_vc_window_size, int, 0644);
 
 void put_app_ra_cnt(int app_uid) {
 	if (app_uid >= 10220 && app_uid < 10245) {

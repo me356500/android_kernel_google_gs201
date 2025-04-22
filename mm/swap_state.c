@@ -956,7 +956,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		goto skip;
 	} 
 
-	if (disable_oom_adj_prefetch && page_oom_score_adj >= 900) {
+	if (disable_oom_adj_prefetch && page_oom_score_adj >= disable_oom_adj_prefetch_value) {
 		count_vm_event(SWAP_RA_BG_APP);
 		goto skip;
 	} 
@@ -966,7 +966,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		goto skip;
 	}
 
-	if (disable_exec_prefetch && atomic_read(&signal_app_switch) == 0) {
+	if (disable_exec_prefetch && !signal_app_switch) {
 		count_vm_event(SWAP_RA_EXECUTE);
 		goto skip;
 	}
@@ -1000,8 +1000,16 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		window_limit = overflow_fixed_window - 1;
 	}
 	// extend switch ec window
-	if (extend_switch_ec_window && atomic_read(&signal_app_switch) == 1 && page_oom_score_adj == 0) {
-		mask = (mask + 1) * extend_switch_ec_window_size - 1;
+	if (extend_switch_ec_window && signal_app_switch && page_oom_score_adj == 0) {
+		//mask = (mask + 1) * extend_switch_ec_window_size - 1;
+		if (mask == 1)
+			mask = 3;
+		else if (mask == 3)
+			mask = 7;
+	}
+	// extend switch vc window
+	if (extend_switch_vc_window && signal_app_switch && page_oom_score_adj == 0) {
+		same_vma_window = extend_switch_vc_window_size;
 	}
 
 	skipra = 0;
