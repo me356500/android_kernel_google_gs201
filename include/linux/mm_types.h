@@ -516,6 +516,9 @@ struct mm_struct {
 		unsigned long nr_anon_refault;
 		unsigned long nr_anon_fault;
 
+		// wyc modify
+		int prev_oom_score_adj;
+		
 		unsigned long hiwater_rss; /* High-watermark of RSS usage */
 		unsigned long hiwater_vm;  /* High-water virtual memory usage */
 

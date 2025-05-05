@@ -1351,6 +1351,7 @@ const char * const vmstat_text[] = {
 #ifdef CONFIG_SWAP
 	"swap_ra",
 	"swap_ra_hit",
+	"user_app_majfault",
 	// "swpin_zram",
 	// "swpin_flash",
 	// "pg_promote",

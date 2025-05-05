@@ -65,5 +65,6 @@ extern unsigned long ra_io_cnt[max_ra_page];
 extern unsigned long no_prefetch_cnt, prefetch_cnt;
 /* system anon workingset_activate */
 extern atomic_long_t anon_refault_page, anon_wa_refault;
-
+extern bool signal_app_switch;
+extern void app_switch_start(void);
 #endif /* _LINUX_MM_HYSWP_MIGRATE_H */

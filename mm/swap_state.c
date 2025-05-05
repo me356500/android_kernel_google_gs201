@@ -867,6 +867,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	int page_uid, page_pid;
 	unsigned ra_window_size = 0, ra_flag = 0;
 	unsigned actual_ra_read = 0, io_count = 0;
+	int page_oom_score_adj = 0;
 	// pte_t orig_pte;
 
 	mask = swapin_nr_pages(offset) - 1;
@@ -877,6 +878,16 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		page_uid = vma->vm_mm->owner->cred->uid.val;
 	if (vma && vma->vm_mm && vma->vm_mm->owner)
 		page_pid = vma->vm_mm->owner->pid;
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		page_oom_score_adj = vma->vm_mm->owner->signal->oom_score_adj;
+	}
+	// set app switch start signal
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
+		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
+			app_switch_start();
+		}	
+	}
+
 #ifdef swap_alloc_swap_ra_enable
 	// mask = 0;
 	mask = get_app_ra_window(page_uid, page_pid) - 1;
@@ -978,6 +989,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		swap_ra_cnt++;
 	lru_add_drain(); /* Push any new pages onto the LRU now */
 skip:
+	// update oom_score_adj
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		vma->vm_mm->prev_oom_score_adj = page_oom_score_adj;
+	}
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll, skip_cnt);
 }
 

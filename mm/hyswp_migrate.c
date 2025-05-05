@@ -146,6 +146,23 @@ atomic_long_t app_ra_page[total_app_slot], app_ra_hit[total_app_slot],
 atomic_long_t proc_ra_page[total_proc_slot], proc_ra_hit[total_proc_slot],
 	proc_ra_window[total_proc_slot];
 
+/* Only enable switch prefetch */
+bool signal_app_switch = 0;
+int switch_msec = 2000;
+module_param_named(switch_msec, switch_msec, int, 0644);
+
+static struct delayed_work app_switch_off_work;
+
+static void turn_off_app_switch_signal(struct work_struct *work) 
+{
+	signal_app_switch = 0;
+}
+
+void app_switch_start(void)
+{
+	signal_app_switch = 1;
+	mod_delayed_work(system_wq, &app_switch_off_work, msecs_to_jiffies(switch_msec));
+}
 #ifdef swap_alloc_swap_ra_enable
 /* app-based swap readahead*/
 void set_app_ra_window(void)
@@ -1381,7 +1398,7 @@ static int __init hyswp_migrate_init(void)
 		pr_err("ycc hyswp_migrate already start.........\n");
 		return 0;
 	}
-
+	INIT_DELAYED_WORK(&app_switch_off_work, turn_off_app_switch_signal);
 	thread = kthread_run(hyswp_migrate, NULL, "hyswp_migrate");
 	if (IS_ERR(thread)) {
 		pr_err("ycc hyswp_migrate failed to start\n");
