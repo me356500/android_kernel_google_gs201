@@ -979,6 +979,23 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 	bool page_allocated;
 	struct vma_swap_readahead ra_info = {0,};
 	unsigned long skipra = 0 , readra = 0; // ycc modify
+	int page_oom_score_adj = 0;
+
+	if (!init_switch_wq) {
+		INIT_DELAYED_WORK(&app_switch_off_work, turn_off_app_switch_signal);
+		init_switch_wq = 1;
+	}
+
+	// wyc add
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		page_oom_score_adj = vma->vm_mm->owner->signal->oom_score_adj;
+	}
+	// set app switch start signal
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
+		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
+			app_switch_start();
+		}	
+	}
 
 	swap_ra_info(vmf, &ra_info);
 	if (ra_info.win == 1)
