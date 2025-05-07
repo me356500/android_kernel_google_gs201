@@ -22,6 +22,8 @@
 #include <linux/swap_slots.h>
 #include <linux/huge_mm.h>
 #include <linux/shmem_fs.h>
+#include <linux/workqueue.h> // wyc add
+#include <linux/swap_state.h> // wyc add
 #include "internal.h"
 
 /*
@@ -67,6 +69,10 @@ static struct {
 	unsigned long find_success;
 	unsigned long find_total;
 } swap_cache_info;
+
+bool signal_app_switch = 0;
+bool init_switch_wq = 0;
+static struct delayed_work app_switch_off_work;
 
 unsigned long total_swapcache_pages(void)
 {
@@ -708,6 +714,17 @@ static unsigned long swapin_nr_pages(unsigned long offset)
 	return pages;
 }
 
+void turn_off_app_switch_signal(struct work_struct *work) 
+{
+	signal_app_switch = 0;
+}
+
+void app_switch_start(void)
+{
+	signal_app_switch = 1;
+	mod_delayed_work(system_wq, &app_switch_off_work, msecs_to_jiffies(2000));
+}
+
 /**
  * swap_cluster_readahead - swap in pages in hope we need them soon
  * @entry: swap entry of this memory
@@ -744,6 +761,23 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	struct vm_area_struct *vma = vmf->vma;
 	unsigned long addr = vmf->address;
 	unsigned long skipra = 0 , readra = 0;
+	int page_oom_score_adj = 0;
+
+	if (!init_switch_wq) {
+		INIT_DELAYED_WORK(&app_switch_off_work, turn_off_app_switch_signal);
+		init_switch_wq = 1;
+	}
+
+	// wyc add
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		page_oom_score_adj = vma->vm_mm->owner->signal->oom_score_adj;
+	}
+	// set app switch start signal
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
+		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
+			app_switch_start();
+		}	
+	}
 
 	mask = swapin_nr_pages(offset) - 1;
 
@@ -799,6 +833,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 	//printk("ycc prefetch cluster,%llu,%lu,%lu,%lu,%llu",mask+1,skipra,readra,skipra+readra,total_swapcache_pages()); // ycc modify
 	lru_add_drain();	/* Push any new pages onto the LRU now */
 skip:
+	// update oom_score_adj
+	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {
+		vma->vm_mm->prev_oom_score_adj = page_oom_score_adj;
+	}
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll);
 }
 

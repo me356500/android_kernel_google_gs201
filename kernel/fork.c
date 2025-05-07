@@ -1085,7 +1085,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	// ycc modify
 	mm->nr_anon_refault = 0;
 	mm->nr_anon_fault = 1;
-
+	// wyc modify
+	mm->prev_oom_score_adj = 900;
 	if (!mmu_notifier_subscriptions_init(mm))
 		goto fail_nopgd;
 	init_tlb_flush_pending(mm);
