@@ -38,7 +38,8 @@ extern void put_app_lifetime_swap_in(int uid, bool long_lifetime);
 
 #ifdef swap_alloc_swap_ra_enable
 /* app-based swap readahead*/
-extern unsigned get_app_ra_window(int app_uid, int app_pid);
+extern unsigned get_app_ra_window(int app_uid, int app_pid, bool switch_flag);
+extern void set_switch_ra_window(int app_uid, int app_pid);
 extern unsigned get_app_same_vma_window(int app_uid, int app_pid);
 #endif
 

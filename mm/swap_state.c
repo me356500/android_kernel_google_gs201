@@ -598,7 +598,12 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			if (!vma || !vma_ra)
 				atomic_inc(&swapin_readahead_hits);
 			// ycc modify
-			put_swap_ra_count(page_uid, page_pid, 1, swp_type(entry));
+			if (TestClearPageSwitchPage(page)) {
+				put_swap_ra_count(page_uid, page_pid, 7, swp_type(entry));
+			}
+			else {
+				put_swap_ra_count(page_uid, page_pid, 1, swp_type(entry));
+			}
 		}
 		
 		same_vma_ra = TestClearPageSameVMA(page);
@@ -930,7 +935,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	unsigned long window_limit = 16 - 1, pre_end_offset = 0;
 	bool readhole = 0;
 	unsigned long pf_seq_id = 0, ra_seq_id = 0;
-	int page_oom_score_adj = 0;
+	int page_oom_score_adj = 1;
 
 	page_uid = page_pid = -1;
 	if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->cred)
@@ -941,9 +946,10 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		page_oom_score_adj = vma->vm_mm->owner->signal->oom_score_adj;
 	}
 	// set app switch start signal
-	if ((disable_exec_prefetch || extend_switch_ec_window || detect_switch) && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
+	if (detect_switch && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal) {	
 		if (page_oom_score_adj == 0 && vma->vm_mm->prev_oom_score_adj >= 700) {
 			app_switch_start();
+			//set_switch_ra_window(page_uid, page_pid);
 		}	
 	}
 	// skip zram_ra
@@ -989,7 +995,12 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 	}
 	// wyc: per_app_prefetch
 	if (per_app_ra_prefetch) {
-		mask = get_app_ra_window(page_uid, page_pid) - 1;
+		if (extend_switch_ec_window && signal_app_switch && page_oom_score_adj == 0) {
+			mask = get_app_ra_window(page_uid, page_pid, 1) - 1;
+		}
+		else {
+			mask = get_app_ra_window(page_uid, page_pid, 0) - 1;
+		}
 	}
 	// wyc: overflow_prefetch
 	if (per_app_vma_prefetch) {
@@ -1000,13 +1011,14 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		window_limit = overflow_fixed_window - 1;
 	}
 	// extend switch ec window
+	/*
 	if (extend_switch_ec_window && signal_app_switch && page_oom_score_adj == 0) {
 		//mask = (mask + 1) * extend_switch_ec_window_size - 1;
 		if (mask == 1)
 			mask = 3;
 		else if (mask == 3)
 			mask = 7;
-	}
+	}*/
 	// extend switch vc window
 	if (extend_switch_vc_window && signal_app_switch && page_oom_score_adj == 0) {
 		same_vma_window = extend_switch_vc_window_size;
@@ -1183,7 +1195,14 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 			if (offset != entry_offset && (!readahead_unused_slot || !readhole)) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
-				put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
+				// udpate ra stat
+				if (extend_switch_ec_window && signal_app_switch && page_oom_score_adj == 0) {
+					SetPageSwitchPage(page);
+					put_swap_ra_count(page_uid, page_pid, 6, swp_type(entry));
+				}
+				else {
+					put_swap_ra_count(page_uid, page_pid, 0, swp_type(entry));
+				}
 				
 				if (print_log) {
 					if (offset <= pre_end_offset)
