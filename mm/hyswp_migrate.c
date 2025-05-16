@@ -349,9 +349,9 @@ void set_app_ra_window(void)
 			unsigned hit_rate = hit_page * 100 / ra_page;
 			atomic_set(&app_switch_ra_page[i], ra_page / 2);
 			atomic_set(&app_switch_ra_hit[i], hit_page / 2);
-			if (ra_window <= 8 && ra_window >= 2) {
+			if (ra_window <= 16 && ra_window >= 2) {
 				if (hit_rate > 60)
-					ra_window = min(8, ra_window * 2);
+					ra_window = min(16, ra_window * 2);
 				else if (hit_rate < 40)
 					ra_window = max(2, ra_window / 2);
 				else
@@ -369,9 +369,9 @@ void set_app_ra_window(void)
 			unsigned hit_rate = hit_page * 100 / ra_page;
 			atomic_set(&proc_switch_ra_page[i], ra_page / 2);
 			atomic_set(&proc_switch_ra_hit[i], hit_page / 2);
-			if (ra_window <= 8 && ra_window >= 2) {
+			if (ra_window <= 16 && ra_window >= 2) {
 				if (hit_rate > 60)
-					ra_window = min(8, ra_window * 2);
+					ra_window = min(16, ra_window * 2);
 				else if (hit_rate < 40)
 					ra_window = max(2, ra_window / 2);
 				else
@@ -1416,11 +1416,17 @@ void print_swap_ra_log(void)
 #endif
 	/* app-based swap readahead*/
 	/* section 4-d: each app prefetch window size */
-	sprintf(msg, "adaptive_app_ra_window");
+	sprintf(msg, "adaptive_app_exec_ra_window");
 	for (i = 20; i < total_app_slot; i++) {
 		int ra_window = atomic_read(&app_ra_window[i]);
 		sprintf(msg, "%s, %u", msg, ra_window);
 	}
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+	sprintf(msg, "adaptive_app_switch_window");
+		for (i = 20; i < total_app_slot; i++) {
+			int ra_window = atomic_read(&app_switch_ra_window[i]);
+			sprintf(msg, "%s, %u", msg, ra_window);
+		}
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 	// unused
 	sprintf(msg, "app_ra_hit");
