@@ -180,6 +180,10 @@ unsigned app_flash_ra[total_app_slot];
 unsigned app_flash_ra_hit[total_app_slot];
 unsigned app_flash_ra_same_vma[total_app_slot];
 unsigned app_flash_ra_same_vma_hit[total_app_slot];
+unsigned app_exec_flash_ra[total_app_slot];
+unsigned app_exec_flash_ra_hit[total_app_slot];
+unsigned app_switch_flash_ra[total_app_slot];
+unsigned app_switch_flash_ra_hit[total_app_slot];
 atomic_long_t zram_ra_hit, flash_ra_hit, zram_ra_page, flash_ra_page;
 /* per-app workingset_activate */
 unsigned app_workingset_activate_ratio[total_app_slot];
@@ -586,6 +590,14 @@ void put_swap_ra_count(int app_uid, int app_pid, int ra_hit_flag, int swap_type)
 				app_flash_ra_same_vma[slot]++;
 			else if (ra_hit_flag == 3)
 				app_flash_ra_same_vma_hit[slot]++;
+			else if (ra_hit_flag == 8)
+				app_exec_flash_ra[slot]++;
+			else if (ra_hit_flag == 9)
+				app_exec_flash_ra_hit[slot]++;
+			else if (ra_hit_flag == 10)
+				app_switch_flash_ra[slot]++;
+			else if (ra_hit_flag == 11)
+				app_switch_flash_ra_hit[slot]++;
 		}
 		spin_unlock(&distribution_lock);
 		if (ra_hit_flag == 1)
@@ -660,6 +672,8 @@ static void init_statistic()
 		app_workingset_activate_ratio[i] = 0;
 
 		app_flash_ra[i] = app_flash_ra_hit[i] = app_flash_ra_same_vma[i] = app_flash_ra_same_vma_hit[i] = 0;
+		
+		app_exec_flash_ra[i] = app_exec_flash_ra_hit[i] = app_switch_flash_ra[i] = app_switch_flash_ra_hit[i] = 0;
 
 		app_zram_page_cnt[i] = app_flash_page_cnt[i] = 0;
 	}
@@ -1496,6 +1510,27 @@ void print_swap_ra_log(void)
 	sprintf(msg, "app_flash_ra_same_vma_hit");
 	for (i = 20; i < total_app_slot; i++)
 		sprintf(msg, "%s, %u", msg, app_flash_ra_same_vma_hit[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+ 	/* section 3.4 prefetch controller */
+	sprintf(msg, "app_exec_flash_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_exec_flash_ra[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	sprintf(msg, "app_exec_flash_ra_hit");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_exec_flash_ra_hit[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	sprintf(msg, "app_switch_flash_ra");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_switch_flash_ra[i]);
+	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
+
+	sprintf(msg, "app_switch_flash_ra_hit");
+	for (i = 20; i < total_app_slot; i++)
+		sprintf(msg, "%s, %u", msg, app_switch_flash_ra_hit[i]);
 	printk("wyc hyswp_info, scan_round,%d, %s", scan_round, msg);
 
 	/* section 4.1: fig.10 */

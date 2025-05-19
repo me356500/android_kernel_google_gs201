@@ -600,9 +600,11 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			// ycc modify
 			if (TestClearPageSwitchPage(page)) {
 				put_swap_ra_count(page_uid, page_pid, 7, swp_type(entry));
+				put_swap_ra_count(page_uid, page_pid, 11, swp_type(entry));
 			}
 			else {
 				put_swap_ra_count(page_uid, page_pid, 1, swp_type(entry));
+				put_swap_ra_count(page_uid, page_pid, 9, swp_type(entry));
 			}
 		}
 		
@@ -1209,6 +1211,14 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 						put_swap_ra_count(page_uid, page_pid, 4, swp_type(entry));
 					else
 						put_swap_ra_count(page_uid, page_pid, 5, swp_type(entry));
+					
+					if (signal_app_switch) {
+						SetPageSwitchPage(page);
+						put_swap_ra_count(page_uid, page_pid, 10, swp_type(entry));
+					}
+					else {
+						put_swap_ra_count(page_uid, page_pid, 8, swp_type(entry));
+					}
 				}
 			}
 			if (print_log && swp_type(entry) != 0) {
