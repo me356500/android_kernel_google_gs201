@@ -3714,7 +3714,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		/* Had to read the page from swap area: Major fault */
 		ret = VM_FAULT_MAJOR;
 		count_vm_event(PGMAJFAULT);
-		if (vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal && vma->vm_mm->owner->signal->oom_score_adj == 0
+		if (swp_type(entry) == 1 && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal && vma->vm_mm->owner->signal->oom_score_adj == 0
 			&& signal_app_switch) {
 			count_vm_event(USER_APP_MAJFAULT);
 		}
