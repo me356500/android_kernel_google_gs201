@@ -85,6 +85,7 @@
 #include <asm/tlbflush.h>
 
 #include <linux/swap_state.h> // wyc add
+#include <linux/frontswap.h> // wyc add
 
 #include "pgalloc-track.h"
 #include "internal.h"
@@ -3714,7 +3715,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		/* Had to read the page from swap area: Major fault */
 		ret = VM_FAULT_MAJOR;
 		count_vm_event(PGMAJFAULT);
-		if (swp_type(entry) == 0 && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal && vma->vm_mm->owner->signal->oom_score_adj == 0
+		if (!frontswap_test(si, swp_offset(entry)) && vma && vma->vm_mm && vma->vm_mm->owner && vma->vm_mm->owner->signal && vma->vm_mm->owner->signal->oom_score_adj == 0
 			&& signal_app_switch) {
 			count_vm_event(USER_APP_MAJFAULT);
 		}
