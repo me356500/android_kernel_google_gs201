@@ -822,6 +822,7 @@ new_cluster:
 			spin_lock(&swap_block_pid_lock);
 			swap_block_pid[cluster_next(&node->index)] = pid;
 			spin_unlock(&swap_block_pid_lock);
+			count_vm_event(FLASH_SWAP_NEW_CLUSTER);
         } else if (!cluster_list_empty(&si->discard_clusters)) {
             swap_do_scheduled_discard(si);
             *scan_base = this_cpu_read(*si->cluster_next_cpu);

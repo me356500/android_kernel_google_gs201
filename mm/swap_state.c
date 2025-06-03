@@ -501,10 +501,12 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 			else 		// minor fault
 				put_app_swap_in_pattern(page_uid, si_type, 0);
 		}
-		if (swp_type(entry)) // mark: temp to count page fault in zram,swp
-			count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
-		else
-			count_vm_event(THP_SWPOUT); // page fault on flash
+		if (!page) {
+			if (swp_type(entry)) // mark: temp to count page fault in zram,swp
+				count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
+			else
+				count_vm_event(THP_SWPOUT); // page fault on flash
+		}
 		/* page fault in which mm_struct */
 		if (print_log && show_fault_distribution)
 			put_mm_fault_distribution(refault_activate_ratio);
