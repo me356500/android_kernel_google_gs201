@@ -1005,8 +1005,7 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask, struct vm
 		else {
 			mask = get_app_ra_window(page_uid, page_pid, 0) - 1;
 		}
-		// if (mask != 0)
-		//	mask = prefetch_window_size - 1;
+		// mask = prefetch_window_size - 1;
 	}
 	// wyc: overflow_prefetch
 	if (per_app_vma_prefetch) {
