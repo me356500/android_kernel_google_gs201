@@ -503,9 +503,9 @@ struct page *lookup_swap_cache(swp_entry_t entry, struct vm_area_struct *vma, un
 		}
 		if (!page) {
 			if (swp_type(entry)) // mark: temp to count page fault in zram,swp
-				count_vm_event(THP_SWPOUT_FALLBACK); // page fault on zram
+				count_vm_event(THP_SWPOUT_FALLBACK); // page fault on flash
 			else
-				count_vm_event(THP_SWPOUT); // page fault on flash
+				count_vm_event(THP_SWPOUT); // page fault on zram
 		}
 		/* page fault in which mm_struct */
 		if (print_log && show_fault_distribution)
